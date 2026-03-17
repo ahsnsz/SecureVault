@@ -5,6 +5,8 @@
 然后在win上安装核心库与打包文件：
   pip install customtkinter cryptography pyinstaller
 
+  python -m pip install cryptography customtkinter pyinstaller
+
 然后可以进行测试：
   python main.py
 
