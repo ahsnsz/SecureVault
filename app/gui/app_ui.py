@@ -161,6 +161,11 @@ class SecureVaultApp(ctk.CTk):
 
     def build_login_screen(self):
         """构建登录界面，包含最近使用的金库列表 (还原 Proposal UI/UX Mockup)"""
+        # ====== 终极防御：清空屏幕上可能残留的任何主界面组件 ======
+        for widget in self.winfo_children():
+            widget.destroy()
+        # ==========================================================
+
         # 调整窗口大小以容纳左侧的 Recent 栏
         self.geometry("650x500")
 
@@ -339,10 +344,12 @@ class SecureVaultApp(ctk.CTk):
 
     def show_main_vault_screen(self):
         """进入主密码本界面 (对应 Proposal 的 All Passwords 界面)"""
-        # 1. 【修改点】：因为我们在登录界面加了左侧栏，外面包了一层 login_wrapper
-        # 所以进入主界面时，必须把这一整层 wrapper 全部销毁，才能清空屏幕
-        if hasattr(self, 'login_wrapper') and self.login_wrapper.winfo_exists():
-            self.login_wrapper.destroy()
+        # ====== 终极修复：无差别清屏 ======
+        # 遍历当前主窗口上的所有组件，把它们连根拔起彻底销毁
+        # 这样能 100% 保证旧界面不残留，彻底杜绝 pack 和 grid 冲突！
+        for widget in self.winfo_children():
+            widget.destroy()
+        # ======================================
 
         # 2. 调整窗口大小以适应主界面 (Mockup 显示这是一个宽屏界面)
         self.geometry("900x600")
