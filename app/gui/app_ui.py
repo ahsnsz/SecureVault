@@ -3,6 +3,7 @@ import json # <--- 新增用于读写历史记录
 from tkinter import filedialog  # <--- 新增用于调出系统的文件选择窗口
 import csv  # <--- 新增这行，用于处理 Excel/CSV 表格格式
 import customtkinter as ctk
+import tkinter.messagebox as messagebox  # <--- 新增这行，用于弹出警告确认框
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -1030,6 +1031,21 @@ class SecureVaultApp(ctk.CTk):
         btn_update = ctk.CTkButton(scroll_frame, text="Update Password", command=self.handle_change_master_password)
         btn_update.pack(anchor="w", pady=(10, 0))
 
+        # ====== 新增：危险操作区 (Danger Zone) ======
+        ctk.CTkLabel(
+            scroll_frame,
+            text="Danger Zone",
+            text_color="#d9534f",
+            font=ctk.CTkFont(size=18, weight="bold")
+        ).pack(anchor="w", pady=(20, 10))
+
+        btn_delete_vault = ctk.CTkButton(
+            scroll_frame, text="🗑️ Delete Entire Vault",
+            fg_color="#d9534f", hover_color="#c9302c", text_color="white",
+            command=self.handle_delete_vault  # 绑定销毁方法
+        )
+        btn_delete_vault.pack(anchor="w", pady=(0, 20))
+
         # ================= 数据管理区 (Export) =================
         # 加一条灰色的分割线
         ctk.CTkFrame(scroll_frame, height=2, fg_color=("gray80", "gray20")).pack(fill="x", pady=(20, 10))
@@ -1094,3 +1110,34 @@ class SecureVaultApp(ctk.CTk):
 
         except Exception as e:
             self.show_toast(f"Export failed: {e}", text_color="#d9534f")
+
+    def handle_delete_vault(self):
+        """彻底删除当前金库文件，清理历史记录，并退回登录界面"""
+        # 1. 弹出极其严肃的二次确认警告
+        confirm = messagebox.askyesno(
+            "Delete Vault",
+            "WARNING: This will PERMANENTLY delete your vault and all saved passwords.\n\n"
+            "This action CANNOT be undone.\n\n"
+            "Are you absolutely sure you want to proceed?"
+        )
+
+        if not confirm:
+            return  # 用户点击了 No，取消操作
+
+        try:
+            # 2. 从电脑硬盘上物理删除 .svdb 加密文件
+            if os.path.exists(self.vault_filepath):
+                os.remove(self.vault_filepath)
+
+            # 3. 从最近使用的历史记录 (recent_vaults.json) 中抹除它的痕迹
+            recents = self.get_recent_vaults()
+            if self.vault_filepath in recents:
+                recents.remove(self.vault_filepath)
+                with open(self.recent_json_path, "w") as f:
+                    json.dump(recents, f)
+
+            # 4. 强制用户退出并回到登录界面
+            self.handle_logout()
+
+        except Exception as e:
+            self.show_toast(f"Failed to delete vault: {e}", text_color="#d9534f")
