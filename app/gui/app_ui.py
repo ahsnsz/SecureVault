@@ -13,31 +13,50 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 
-
 # ==========================================
-# 自定义 ToolTip 悬浮提示小组件
+# 自定义 ToolTip 悬浮提示小组件 (完美修复 Windows 闪烁版)
 # ==========================================
 class ToolTip:
     def __init__(self, widget, text):
         self.widget = widget
         self.text = text
         self.tooltip_window = None
-        # 绑定鼠标进入和离开事件
-        self.widget.bind("<Enter>", self.show_tooltip)
-        self.widget.bind("<Leave>", self.hide_tooltip)
+        self.id = None  # 用于存储定时器 ID，方便取消
+
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+
+    def enter(self, event=None):
+        """鼠标进入时，不立刻显示，而是设定一个 500ms 的延迟定时器"""
+        self.unschedule()
+        self.id = self.widget.after(500, self.show_tooltip)
+
+    def leave(self, event=None):
+        """鼠标离开时，立刻取消定时器并销毁提示框"""
+        self.unschedule()
+        self.hide_tooltip()
+
+    def unschedule(self):
+        """取消待执行的显示计划"""
+        if self.id:
+            self.widget.after_cancel(self.id)
+            self.id = None
 
     def show_tooltip(self, event=None):
-        """鼠标悬停时显示提示框"""
-        # 计算悬浮窗的位置（在按钮的右下方一点）
-        x = self.widget.winfo_rootx() + 20
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        """真正执行显示提示框的逻辑"""
+        self.unschedule()
+        if self.tooltip_window:
+            return
 
-        # 创建一个没有边框的顶层窗口
+        # 【核心修复点】：获取鼠标的绝对位置，并增加足够的偏移量 (x+15, y+15)
+        # 确保提示框绝对不会生成在鼠标指针的正下方！
+        x = self.widget.winfo_pointerx() + 15
+        y = self.widget.winfo_pointery() + 15
+
         self.tooltip_window = ctk.CTkToplevel(self.widget)
-        self.tooltip_window.wm_overrideredirect(True)  # 去除 macOS 窗口的标题栏和控制按钮
+        self.tooltip_window.wm_overrideredirect(True)
         self.tooltip_window.wm_geometry(f"+{x}+{y}")
 
-        # 悬浮窗里的文本标签 (深灰色背景，圆角)
         label = ctk.CTkLabel(
             self.tooltip_window,
             text=self.text,
@@ -48,8 +67,8 @@ class ToolTip:
         )
         label.pack()
 
-    def hide_tooltip(self, event=None):
-        """鼠标离开时销毁提示框"""
+    def hide_tooltip(self):
+        """销毁提示框"""
         if self.tooltip_window:
             self.tooltip_window.destroy()
             self.tooltip_window = None
