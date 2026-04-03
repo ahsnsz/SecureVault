@@ -1,9 +1,73 @@
-1. 测试 test_core.py 
+***
 
-    python -m unittest tests/test_core.py
+# 🧪 自动化测试指南 (Automated Testing)
 
-2. 测试 test_crypto.py
+本项目实施了严密的自动化测试策略，以确保核心加密层和业务逻辑层的绝对可靠。测试覆盖了网络安全中的**保密性 (Confidentiality)**与**完整性 (Integrity)**。
 
-    要先安装 cryptography 库：pip install pytest
+## ⚙️ 运行环境准备
 
-    然后使用命令 python -m pytest tests/test_crypto.py -v
+在运行测试之前，请确保你已经安装了所需的测试框架和密码学依赖库：
+
+```bash
+# 安装 pytest 测试框架和 cryptography 加密库
+pip install pytest cryptography
+```
+
+---
+
+## 🚀 快速运行测试
+
+### 1. 运行核心业务逻辑测试 (BLL)
+```bash
+python -m unittest tests/test_core.py
+```
+
+### 2. 运行底层数据层测试 (DAL)
+```bash
+python -m pytest tests/test_crypto.py -v
+```
+
+---
+
+## 📂 测试用例详解
+
+### 🛡️ 1. 底层数据层 DAL 测试 (`test_crypto.py`)
+> **测试框架:** `pytest`
+> **核心目标:** 测试“保险箱本身”的坚固程度，验证 AES-GCM 加密算法的保密性与完整性。
+
+本文件包含三个极其核心的安全测试用例：
+
+* **✅ 正常加解密测试 (`test_encrypt_decrypt_success`)**
+  * **模拟场景：** 用户把数据放进保险箱，用正确的钥匙（主密码）锁上，再用同一把钥匙打开。
+  * **测试目的：** 证明加密算法基本盘稳定，能正常工作。同时验证每次加密生成的密文 (bytes) 长度必定大于原文字符串（确保正确融入了盐值 Salt 和随机数 Nonce）。
+
+* **🚫 防暴力破解测试 (`test_wrong_password`)**
+  * **模拟场景：** 攻击者使用错误的钥匙（`WrongPassword`）试图强行打开保险箱。
+  * **测试目的：** 证明系统会立刻察觉并抛出 `ValueError` 报错，绝不妥协，不泄露哪怕一个字节的数据。
+
+* **🚨 防篡改完整性测试 (`test_tampered_data`)**
+  * **模拟场景：** 高级黑客在没有密码的情况下，通过技术手段偷偷修改了硬盘上加密文件的哪怕一个字节（如 `tampered_blob[-1] + 1`）。
+  * **测试目的：** 验证 **AES-GCM 加密算法** 的强大数字签名能力。只要数据在硬盘上被改动过一丝一毫，解密时就会直接触发 `Invalid Password or Corrupted Data` 警报并拒绝解密。
+
+---
+
+### 💼 2. 核心业务逻辑层 BLL 测试 (`test_core.py`)
+> **测试框架:** `unittest`
+> **核心目标:** 测试“大堂经理”的工作是否合规，验证不涉及底层加密但直接影响用户体验与安全策略的功能。
+
+本文件主要针对两大核心业务进行边界条件测试：
+
+#### 测试套件 A: 密码生成器 (Password Generator)
+* **长度校验 (`test_generate_password_length`)：** 验证系统为用户随机生成的密码是否严格精确到了指定的长度（例如 16 位），不多不少。
+* **复杂度校验 (`test_generate_password_complexity`)：** 验证生成的长密码（如 20 位）中，是否“雨露均沾”地包含了大写字母、小写字母和数字，防止生成纯数字的伪随机弱密码。
+
+#### 测试套件 B: 密码强度评估 (Strength Evaluator)
+本套件对强度评估算法进行了极端的**边界条件 (Edge Cases)** 测试。分别输入：
+* 极端简单的密码：`"123"`
+* 普通的密码：`"Password123"`
+* 复杂的密码：`"My$ecretP@ssw0rd!"`
+* 刁钻的空字符：`""`
+
+**测试目的：** 验证代码在面对各种千奇百怪的输入时，能否精准返回对应的强度状态（`Weak`, `Medium`, `Strong`）和进度条数值（`0.33`, `0.66`, `1.0`），并确保在遇到空输入时程序不会崩溃。
+
+***
