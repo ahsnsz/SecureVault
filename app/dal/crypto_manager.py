@@ -41,8 +41,24 @@ class CryptoManager:
             memory_cost=self.kdf_params["memory_cost"],
             lanes=self.kdf_params["parallelism"]
         )
-        # 将字符串密码转为 bytes 并派生
-        return kdf.derive(password.encode('utf-8'))
+        # # 将字符串密码转为 bytes 并派生
+        # return kdf.derive(password.encode('utf-8'))
+        # 1. 炼化出 32 字节的二进制 Key
+        key = kdf.derive(password.encode('utf-8'))
+
+        # # ==========================================
+        # # 🛠️ 临时调试代码：亲眼看到造出来的Key
+        # # ==========================================
+        # print("\n" + "=" * 40)
+        # print("🔐 [安全核心执行日志] 密钥派生成功！")
+        # print(f"👉 用户输入的明文密码: {password}")
+        # print(f"🧂 随机生成的 Salt (十六进制): {salt.hex()}")
+        # print(f"🔑 炼化出的 AES Key (十六进制): {key.hex()}")
+        # print(f"📏 Key 的精确长度: {len(key)} bytes (对应 AES-256)")
+        # print("=" * 40 + "\n")
+        # # ==========================================
+
+        return key
 
     def encrypt_data(self, data: dict, password: str) -> bytes:
         """
