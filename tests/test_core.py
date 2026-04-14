@@ -1,6 +1,6 @@
 import unittest
 
-# 导入你的核心业务逻辑层 (假设路径是 app.bll.vault_service)
+# Import the core business logic layer (assuming the path is app.bll.vault_service)
 from app.bll.vault_service import VaultService
 
 
@@ -8,68 +8,68 @@ class TestSecureVaultCore(unittest.TestCase):
 
     def setUp(self):
         """
-        setUp 是每次测试前都会自动运行的准备工作。
-        我们在这里初始化一个大堂经理 (VaultService) 供后续测试使用。
-        (如果在你的代码里 VaultService 需要传入 crypto_manager，请传入 None 或模拟对象)
+        setUp runs automatically before each test.
+        We initialize a coordinator (VaultService) here for the following tests.
+        (If VaultService in your code requires a crypto_manager, pass None or a mock object.)
         """
         try:
             self.service = VaultService()
         except TypeError:
-            # 兼容处理：如果你的 VaultService 必须传入 CryptoManager
+            # Compatibility handling: if VaultService must receive a CryptoManager
             from app.dal.crypto_manager import CryptoManager
             self.service = VaultService(CryptoManager())
 
-    # ==========================================
-    # 测试套件 1: 密码生成器 (Password Generator)
-    # ==========================================
+    # =====================================
+    # Test Suite 1: Password Generator
+    # =====================================
     def test_generate_password_length(self):
-        """测试 1: 检查生成的密码长度是否准确"""
+        """Test 1: Check whether the generated password length is correct."""
         length_to_test = 16
         pwd = self.service.generate_random_password(length=length_to_test)
 
-        # 断言 (Assert): 期望 pwd 的长度等于 16
-        self.assertEqual(len(pwd), length_to_test, "生成的密码长度不符合预期")
+        # Assert: the expected length of pwd is 16
+        self.assertEqual(len(pwd), length_to_test, "Generated password length does not match the expectation")
 
     def test_generate_password_complexity(self):
-        """测试 2: 检查生成的密码是否包含多种字符类型"""
+        """Test 2: Check whether the generated password contains multiple character types."""
         pwd = self.service.generate_random_password(length=20)
 
         has_upper = any(c.isupper() for c in pwd)
         has_lower = any(c.islower() for c in pwd)
         has_digit = any(c.isdigit() for c in pwd)
 
-        # 断言: 必须同时包含大写、小写和数字
-        self.assertTrue(has_upper, "密码中缺少大写字母")
-        self.assertTrue(has_lower, "密码中缺少小写字母")
-        self.assertTrue(has_digit, "密码中缺少数字")
+        # Assert: it must contain uppercase, lowercase, and digits
+        self.assertTrue(has_upper, "Password is missing an uppercase letter")
+        self.assertTrue(has_lower, "Password is missing a lowercase letter")
+        self.assertTrue(has_digit, "Password is missing a digit")
 
-    # ==========================================
-    # 测试套件 2: 密码强度评估 (Strength Evaluator)
-    # ==========================================
+    # =====================================
+    # Test Suite 2: Strength Evaluator
+    # =====================================
     def test_evaluate_strength_weak(self):
-        """测试 3: 检查极短/纯数字密码是否被识别为 Weak"""
+        """Test 3: Check whether a very short / numeric-only password is identified as Weak."""
         text, color, progress = self.service.evaluate_password_strength("123")
 
         self.assertEqual(text, "Weak")
         self.assertEqual(progress, 0.33)
 
     def test_evaluate_strength_medium(self):
-        """测试 4: 检查普通密码是否被识别为 Medium"""
+        """Test 4: Check whether a regular password is identified as Medium."""
         text, color, progress = self.service.evaluate_password_strength("Password123")
 
         self.assertEqual(text, "Medium")
         self.assertEqual(progress, 0.66)
 
     def test_evaluate_strength_strong(self):
-        """测试 5: 检查复杂密码是否被识别为 Strong"""
+        """Test 5: Check whether a complex password is identified as Strong."""
         text, color, progress = self.service.evaluate_password_strength("My$ecretP@ssw0rd!")
 
         self.assertEqual(text, "Strong")
         self.assertEqual(progress, 1.0)
-        self.assertEqual(color, "#5cb85c")  # 期望是绿色
+        self.assertEqual(color, "#5cb85c")  # Expected to be green
 
     def test_evaluate_strength_empty(self):
-        """测试 6: 检查空密码的边界情况 (Edge Case)"""
+        """Test 6: Check the edge case of an empty password."""
         text, color, progress = self.service.evaluate_password_strength("")
 
         self.assertEqual(text, "")
@@ -77,5 +77,5 @@ class TestSecureVaultCore(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    # 这一行让我们可以直接运行这个文件来启动测试
+    # This line allows us to run this file directly to start the tests
     unittest.main()

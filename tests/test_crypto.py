@@ -3,12 +3,10 @@ import os
 import json
 from app.dal.crypto_manager import CryptoManager
 
-
 # 测试夹具：每次测试前自动运行
 @pytest.fixture
 def crypto_manager():
     return CryptoManager()
-
 
 def test_encrypt_decrypt_success(crypto_manager):
     """测试正常的加密和解密流程"""
@@ -31,7 +29,6 @@ def test_encrypt_decrypt_success(crypto_manager):
     # 验证解密后的数据与原始内容一致
     assert decrypted_data == secret_data
 
-
 def test_wrong_password(crypto_manager):
     """测试使用错误密码解密 (应失败)"""
     password = "RightPassword"
@@ -43,7 +40,6 @@ def test_wrong_password(crypto_manager):
     # 预期会抛出 ValueError (我们在代码里捕获了 InvalidTag 并转抛为 ValueError)
     with pytest.raises(ValueError, match="Invalid Password"):
         crypto_manager.decrypt_data(encrypted_blob, wrong_password)
-
 
 def test_tampered_data(crypto_manager):
     """测试数据被篡改 (AES-GCM 完整性校验应失败)"""

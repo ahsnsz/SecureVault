@@ -3,8 +3,9 @@ import secrets
 import string
 from app.dal.crypto_manager import CryptoManager
 
-#Business Logic Layer BLL层
-#负责协调 GUI 和 DAL层，处理文件 I/O 和密码生成
+# Business Logic Layer BLL层
+# Responsible for coordinating between the GUI and DAL layers
+# handling file I/O and password generation
 class VaultService:
     def __init__(self):
         #实例化数据访问层DAL（也就是crypto_manager），并将其作为属性保存到BLL中
@@ -55,8 +56,6 @@ class VaultService:
         else:
             return "Strong", "#5cb85c", 1.0  # 绿色, 进度 100%
 
-
-
     #实现保存密码库的功能
     def save_vault(self, filepath: str, master_password: str, data: list):
         # 将用户的明文密码列表，加密并写入本地文件。
@@ -69,7 +68,6 @@ class VaultService:
         # 因为经过 AES 加密后的数据已经不是普通的文本了，必须用二进制模式保存。
         with open(filepath, 'wb') as f:
             f.write(encrypted_data)
-
 
     #实现加载密码库的功能
     def load_vault(self, filepath: str, master_password: str) -> list:
@@ -91,8 +89,6 @@ class VaultService:
 
         # 4. 返回明文数据给 GUI 去显示
         return decrypted_data
-
-
 
     #实现创建新的空密码库的文件
     def create_new_vault(self, filepath: str, master_password: str) -> list:

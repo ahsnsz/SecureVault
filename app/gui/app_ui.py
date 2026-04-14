@@ -105,9 +105,9 @@ class SecureVaultApp(ctk.CTk):
 
         # --- 新增：自动锁定定时器相关变量 ---
         self.inactivity_timer = None
-        # 【注意】为了方便你马上看到效果，这里我先设置成 5 秒 (5000毫秒)。
+        # 【注意】为了方便马上看到效果，这里先设置成 10 秒 (10000毫秒)。
         # 测试成功后，在写论文前，请把它改成 300000 (即 5 分钟)。
-        self.timeout_ms = 300000
+        self.timeout_ms = 300000  # 10秒 (测试用)，正式版请改成 300000 (5分钟)
         self.setup_inactivity_tracker()
 
         self.build_login_screen()

@@ -6,11 +6,10 @@ from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 from cryptography.hazmat.primitives import hashes
 from cryptography.exceptions import InvalidTag
 
-
 class CryptoManager:
     """
     Data Access Layer (DAL) Security Core.
-    负责处理所有的加密 (AES-GCM) 和密钥派生 (Argon2id)。
+    Responsible for handling all encryption (AES-GCM) and key derivation (Argon2id)
     """
 
     def __init__(self):
@@ -18,19 +17,21 @@ class CryptoManager:
         # 根据detail proposal ，我们需要抵抗 GPU 攻击，因此需要高内存消耗。
         self.kdf_params = {
             "algorithm": hashes.SHA256(),
-            "length": 32,  # 生成 32 字节 (256-bit) 密钥，对应 AES-256 [cite: 41]
-            "salt_len": 16,  # 16 字节随机 Salt [cite: 46]
+            "length": 32,  # 生成 32 字节 (256-bit) 密钥，对应 AES-256
+            "salt_len": 16,  # 16 字节随机 Salt
             "iterations": 2,  # 迭代次数 (Time cost)
-            "memory_cost": 64 * 1024,  # 内存消耗 64MB (Memory cost)
+            "memory_cost": 64 * 1024,  # 内存消耗 64MB (Memory cost) 抗 GPU 攻击
             "parallelism": 4,  # 并行度
         }
+
 
     def _derive_key(self, password: str, salt: bytes) -> bytes:
         # 密钥派生
         # 用户的密码长度不固定，也不随机。
         # AES 加密算法需要一个长度固定（32字节）且看起来完全随机的二进制串作为 Key。
         # KDF (Key Derivation Function) 就是这就负责把“弱密码”变成“强密钥”的工厂。
-        # Salt (盐) 的作用：如果不加盐，两个用户如果密码都是 "123456"，生成的 Key 就一模一样。加了随机盐，就算密码一样，生成的 Key 也完全不同，防止“彩虹表”攻击。
+        # Salt (盐) 的作用：如果不加盐，两个用户如果密码都是 "123456"，生成的 Key 就一模一样。
+        # 加了随机盐，就算密码一样，生成的 Key 也完全不同，防止“彩虹表”攻击。
         """
         内部方法：使用 Argon2id 将用户的主密码转换为加密密钥。
         """
@@ -69,7 +70,7 @@ class CryptoManager:
         4. AES-GCM 加密
         5. 打包返回 (Salt + Nonce + Ciphertext)
         """
-        # 1. 生成唯一的随机 Salt [cite: 46]
+        # 1. 生成唯一的随机 Salt
         salt = os.urandom(self.kdf_params["salt_len"])
 
         # 2. 派生密钥 (AES-256 Key) 【造钥匙：用 salt + 密码 -> 算出 AES Key】
@@ -88,6 +89,7 @@ class CryptoManager:
         # 5. 打包：为了方便解密，我们需要把 Salt 和 Nonce 跟密文存在一起
         # 格式: [Salt (16 bytes)] [Nonce (12 bytes)] [Ciphertext (其余)]
         return salt + nonce + ciphertext
+
 
     def decrypt_data(self, encrypted_data: bytes, password: str) -> dict:
         """
