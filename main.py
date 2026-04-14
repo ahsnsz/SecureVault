@@ -1,4 +1,4 @@
-#1. 这部分用于开始测试环境的设置和验证，确保所有必要的库都已正确安装，并且版本兼容。
+# 1. This section is used to set up and verify the test environment, ensuring that all necessary libraries are properly installed and version compatible.
 # import customtkinter
 # import cryptography
 # import argon2
@@ -15,21 +15,21 @@
 
 
 
-# 2. 这个部分用于启动整个应用，创建 VaultService 实例，并将其传递给 GUI 层的 AppUI 来启动界面。
+# 2. This section is used to start the entire application, create a VaultService instance, and pass it to the GUI layer's AppUI to launch the interface.
 from app.bll.vault_service import VaultService
-# 测试用例 app.gui.app_ui_test
+# Test case app.gui.app_ui_test
 from app.gui.app_ui import SecureVaultApp
 
 
 def main():
-    # 1. 初始化业务逻辑层 (大堂经理)
+    # 1. Initialize the Business Logic Layer (BLL)
     service = VaultService()
 
-    # 2. 初始化 GUI 层，并把业务逻辑层传给它
-    # 这样界面里的按钮就能指挥大堂经理干活了
+    # 2. Initialize the GUI layer and pass the Business Logic Layer to it
+    # This way buttons in the interface can command the BLL to work
     app = SecureVaultApp(vault_service=service)
 
-    # 3. 启动界面的主循环
+    # 3. Start the main loop of the interface
     app.mainloop()
 
 

@@ -3,96 +3,99 @@ import secrets
 import string
 from app.dal.crypto_manager import CryptoManager
 
-# Business Logic Layer BLL层
+# Business Logic Layer (BLL)
 # Responsible for coordinating between the GUI and DAL layers
-# handling file I/O and password generation
+# Handles file I/O and password generation
 class VaultService:
     def __init__(self):
-        #实例化数据访问层DAL（也就是crypto_manager），并将其作为属性保存到BLL中
-        #这样BLL就可以随时调用底层的加密和解密功能了
+        # Instantiate the Data Access Layer (DAL) (i.e., crypto_manager)
+        # and save it as a property in the BLL
+        # This allows BLL to call the underlying encryption and decryption functions at any time
         self.crypto_manager = CryptoManager()
 
-    #生成随机密码
+    # Generate random password
     def generate_random_password(self, length=16, use_upper=True, use_digits=True, use_symbols=True) -> str:
 
-        #密码字符集：大小写字母、数字和特殊符号
-        chars = string.ascii_lowercase  # 默认包含小写字母 (a-z)
+        # Password character set: uppercase and lowercase letters, numbers, and special characters
+        chars = string.ascii_lowercase  # Default includes lowercase letters (a-z)
         if use_upper:
-            chars += string.ascii_uppercase  # 加入大写字母 (A-Z)
+            chars += string.ascii_uppercase  # Add uppercase letters (A-Z)
         if use_digits:
-            chars += string.digits  # 加入数字 (0-9)
+            chars += string.digits  # Add numbers (0-9)
         if use_symbols:
-            chars += "!@#$%^&*"  # 加入特殊符号
+            chars += "!@#$%^&*"  # Add special characters
 
-        #使用 secrets 模块生成安全随机密码
-        #secrets.choice(chars) 会从 chars 中随机选择一个字符，循环 length 次生成指定长度的密码
-        #这里不使用 random 模块，因为 random 生成的是伪随机数，而 secrets 模块则使用系统级的随机数生成器，适合生成密码和密钥
+        # Use the secrets module to generate a cryptographically secure random password
+        # secrets.choice(chars) randomly selects a character from chars, repeats length times to generate a password of specified length
+        # We don't use the random module because it generates pseudo-random numbers, while the secrets module uses system-level RNG, suitable for generating passwords and keys
         return ''.join(secrets.choice(chars) for _ in range(length))
 
     def evaluate_password_strength(self, password: str) -> tuple[str, str, float]:
         """
-        评估密码强度
-        返回一个元组: (强度文本, 颜色十六进制, 进度条数值0.0~1.0)
+        Evaluate password strength
+        Returns a tuple: (strength text, color hex, progress bar value 0.0~1.0)
         """
         if not password:
             return "", "transparent", 0.0
 
         score = 0
-        # 1. 长度加分
+        # 1. Length bonus
         if len(password) >= 8: score += 1
         if len(password) >= 12: score += 1
 
-        # 2. 复杂性加分
+        # 2. Complexity bonus
         if any(c.isupper() for c in password): score += 1
         if any(c.islower() for c in password): score += 1
         if any(c.isdigit() for c in password): score += 1
         if any(c in "!@#$%^&*()-_=+[]{}|;:,.<>?" for c in password): score += 1
 
-        # 3. 评级与进度分配
+        # 3. Rating and progress allocation
         if score < 3:
-            return "Weak", "#d9534f", 0.33  # 红色, 进度 33%
+            return "Weak", "#d9534f", 0.33  # Red, 33% progress
         elif score < 5:
-            return "Medium", "#f0ad4e", 0.66  # 橙色, 进度 66%
+            return "Medium", "#f0ad4e", 0.66  # Orange, 66% progress
         else:
-            return "Strong", "#5cb85c", 1.0  # 绿色, 进度 100%
+            return "Strong", "#5cb85c", 1.0  # Green, 100% progress
 
-    #实现保存密码库的功能
+    # Implement password vault save functionality
     def save_vault(self, filepath: str, master_password: str, data: list):
-        # 将用户的明文密码列表，加密并写入本地文件。
-        # 1. 呼叫 DAL：把明文数据 (data) 和主密码 (master_password) 交给加密核心
-        # 返回的 encrypted_data 是毫无规律的二进制乱码 (bytes)
+        # Encrypts the user's plaintext password list and writes it to a local file.
+        # 1. Call DAL: pass the plaintext data (data) and master password (master_password) to the encryption core
+        # The returned encrypted_data is meaningless binary gibberish (bytes)
         encrypted_data = self.crypto_manager.encrypt_data(data, master_password)
 
-        # 2. 写入本地文件
-        # ‘wb’就是写入二进制)。
-        # 因为经过 AES 加密后的数据已经不是普通的文本了，必须用二进制模式保存。
+        # 2. Write to local file
+        # 'wb' means write binary.
+        # Since the data after AES encryption is no longer plain text, it must be saved in binary mode.
         with open(filepath, 'wb') as f:
             f.write(encrypted_data)
 
-    #实现加载密码库的功能
+    # Implement password vault load functionality
     def load_vault(self, filepath: str, master_password: str) -> list:
         """
-        从本地读取加密文件，并解密还原为明文列表。
+        Read encrypted files from local storage and decrypt back to plaintext list.
         """
-        # 1. 检查文件存不存在
+        # 1. Check if the file exists
         if not os.path.exists(filepath):
-            raise FileNotFoundError(f"找不到密码库文件: {filepath}")
+            raise FileNotFoundError(f"Cannot find vault file: {filepath}")
 
-        # 2. 读取二进制文件
-        # 'rb' 的意思是 Read Binary (读取二进制)
+        # 2. Read binary file
+        # 'rb' means Read Binary
         with open(filepath, 'rb') as f:
             encrypted_data = f.read()
 
-        # 3. 呼叫 DAL：将读到的乱码和用户输入的主密码交还给核心去解密
-        # 如果密码不对，或者文件被篡改，这里会自动报错 (我们在 DAL 里写好的 ValueError)
+        # 3. Call DAL: pass the read gibberish and user-entered master password to decrypt
+        # If the password is wrong or the file has been tampered with, it will automatically report an error (ValueError written in DAL)
         decrypted_data = self.crypto_manager.decrypt_data(encrypted_data, master_password)
 
-        # 4. 返回明文数据给 GUI 去显示
+        # 4. Return plaintext data to GUI for display
         return decrypted_data
 
-    #实现创建新的空密码库的文件
+    # Implement the creation of a new empty password vault file
     def create_new_vault(self, filepath: str, master_password: str) -> list:
-        """创建一个新的空密码库文件"""
-        empty_data = []  # 初始为空列表
+        """Create a new empty vault file"""
+        empty_data = []  # Initially empty list
+        self.save_vault(filepath, master_password, empty_data)
+        return empty_data
         self.save_vault(filepath, master_password, empty_data)
         return empty_data
