@@ -590,6 +590,9 @@ class SecureVaultApp(ctk.CTk):
         self.edit_entry_password.insert(0, item.get("password", ""))
         self.edit_entry_password.pack(side="left", padx=(0, 5))
 
+        # Bind key release event to dynamically evaluate the updated password strength
+        self.edit_entry_password.bind("<KeyRelease>", self.update_edit_password_strength)
+
         # --- New: Eye icon button for Edit interface ---
         self.btn_show_edit_pwd = ctk.CTkButton(
             pwd_frame, text="👁️", width=30, fg_color="transparent", border_width=1, text_color=("gray10", "gray90"),
@@ -604,6 +607,26 @@ class SecureVaultApp(ctk.CTk):
                                      command=self.handle_generate_edit_password)
         btn_generate.pack(side="left")
         ToolTip(btn_generate, "Generate a new secure password")
+
+        # ==========================================
+        # 【new】：Password strength progress bar section (only for edit page)
+        # ==========================================
+        self.edit_strength_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
+        self.edit_strength_frame.pack(anchor="w", pady=(10, 0), fill="x")
+
+        ctk.CTkLabel(self.edit_strength_frame, text="Strength: ", font=ctk.CTkFont(size=12)).pack(side="left")
+
+        self.edit_strength_progressbar = ctk.CTkProgressBar(self.edit_strength_frame, width=150, height=8)
+        self.edit_strength_progressbar.pack(side="left", padx=(5, 10))
+        self.edit_strength_progressbar.set(0)
+
+        self.edit_strength_label = ctk.CTkLabel(self.edit_strength_frame, text="",
+                                                font=ctk.CTkFont(size=12, weight="bold"))
+        self.edit_strength_label.pack(side="left")
+
+        # when entering the edit page, proactively evaluate the strength of the existing password
+        self.update_edit_password_strength()
+        # ==========================================
 
         self.edit_status_label = ctk.CTkLabel(form_frame, text="", text_color="red")
         self.edit_status_label.pack(anchor="w", pady=(10, 0))
@@ -621,6 +644,21 @@ class SecureVaultApp(ctk.CTk):
                                    command=self.show_password_list)
         btn_cancel.pack(side="left")
 
+    def update_edit_password_strength(self, event=None):
+        """Real-time update of the password strength display and progress bar in the Edit form"""
+        current_pwd = self.edit_entry_password.get()
+        # Receive three parameters returned by the BLL: text, color, and progress value
+        strength_text, color, progress_value = self.vault_service.evaluate_password_strength(current_pwd)
+
+        if strength_text:
+            self.edit_strength_label.configure(text=strength_text, text_color=color)
+            self.edit_strength_progressbar.configure(progress_color=color)
+            self.edit_strength_progressbar.set(progress_value)
+        else:
+            self.edit_strength_label.configure(text="")
+            self.edit_strength_progressbar.set(0)
+            self.edit_strength_progressbar.configure(progress_color="gray")
+
     def handle_generate_edit_password(self):
         """Generate new password in edit form"""
         new_pwd = self.vault_service.generate_random_password(length=16)
@@ -628,7 +666,10 @@ class SecureVaultApp(ctk.CTk):
         self.edit_entry_password.insert(0, new_pwd)
         self.edit_entry_password.configure(show="")
 
-        # --- New: Sync update eye icon ---
+        # After generating a new password, proactively evaluate its strength and update the display
+        self.update_edit_password_strength()
+
+        # New: Sync update eye icon
         if hasattr(self, 'btn_show_edit_pwd') and self.btn_show_edit_pwd.winfo_exists():
             self.btn_show_edit_pwd.configure(text="🙈")
 
