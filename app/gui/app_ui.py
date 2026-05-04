@@ -8,15 +8,11 @@ import tkinter.messagebox as messagebox
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
-import os
-import json
-from tkinter import filedialog
-import customtkinter as ctk
 
 
-# ==========================================
-# Custom ToolTip hover widget (fixed Windows flickering version)
-# ==========================================
+# Custom ToolTip hover widget
+# ver 1.1 fixed Windows flickering version
+
 class ToolTip:
     def __init__(self, widget, text):
         self.widget = widget
@@ -49,7 +45,7 @@ class ToolTip:
         if self.tooltip_window:
             return
 
-        # [Core fix]: Get absolute mouse position and add sufficient offset (x+15, y+15)
+        # fix: Get absolute mouse position and add sufficient offset (x+15, y+15)
          # Ensure tooltip never appears directly below mouse pointer!
         x = self.widget.winfo_pointerx() + 15
         y = self.widget.winfo_pointery() + 15
@@ -76,13 +72,13 @@ class ToolTip:
 
 
 
-
+# main windows class use to display the main window
 class SecureVaultApp(ctk.CTk):
     def __init__(self, vault_service):
         super().__init__()
         self.vault_service = vault_service
 
-        # ====== Fix read-only error after packaging: Set a safe absolute path ======
+        # Fix: read-only error after packaging: Set a safe absolute path
         # Get the current computer user's "Documents" directory
         self.user_docs_dir = os.path.join(os.path.expanduser("~"), "Documents", "SecureVault_Data")
 
@@ -93,7 +89,7 @@ class SecureVaultApp(ctk.CTk):
         # Put all default database and config files into this safe folder
         default_vault = os.path.join(self.user_docs_dir, "my_vault.svdb")
         self.recent_json_path = os.path.join(self.user_docs_dir, "recent_vaults.json")
-        # =======================================================
+
 
         self.vault_filepath = default_vault  # Use the new safe default path
         self.vault_data = []
@@ -103,11 +99,11 @@ class SecureVaultApp(ctk.CTk):
         self.geometry("400x500")
         self.resizable(False, False)
 
-        # --- New: Auto-lock timer related variables ---
+        # New: Auto-lock timer related variables
         self.inactivity_timer = None
-        # [Note] For easy testing, this is set to 10 seconds (10000 milliseconds).
-        # After successful testing, before writing the paper, please change it to 300000 (i.e., 5 minutes).
-        self.timeout_ms = 300000  # 10 seconds (for testing), production version should be 300000 (5 minutes)
+        # For easy testing, this is set to 10 seconds (10000 milliseconds).
+        # After successful testing, before writing the paper, please change it to 300000 (5 minutes).
+        self.timeout_ms = 300000
         self.setup_inactivity_tracker()
 
         self.build_login_screen()
@@ -138,7 +134,7 @@ class SecureVaultApp(ctk.CTk):
 
 
     def setup_inactivity_tracker(self):
-        """Listen to global mouse and keyboard events (corresponding to Proposal Req 27)"""
+        """Listen to global mouse and keyboard events"""
         # Keyboard press, mouse click, or mouse movement will trigger reset_timer
         self.bind_all("<Any-KeyPress>", self.reset_timer)
         self.bind_all("<Any-ButtonPress>", self.reset_timer)
@@ -156,7 +152,7 @@ class SecureVaultApp(ctk.CTk):
 
 
     def lock_vault(self):
-        """Time's up! Lock the vault, clear memory data, return to login screen"""
+        """Auto-Lock the vault, clear memory data, return to login screen"""
         # Check: if currently at login screen (no sidebar_frame), don't need to lock again
         if not hasattr(self, 'sidebar_frame') or not self.sidebar_frame.winfo_exists():
             return
@@ -180,11 +176,10 @@ class SecureVaultApp(ctk.CTk):
 
 
     def build_login_screen(self):
-        """Build login interface, including recent vault list (restore Proposal UI/UX Mockup)"""
-        # ====== Ultimate defense: clear any remaining main interface components on screen ======
+        """Build login interface, including recent vault list, restore Proposal UI/UX Mockup"""
+        # Ultimate defense: clear all remaining main interface components on screen
         for widget in self.winfo_children():
             widget.destroy()
-        # ==========================================================
 
         # Adjust window size to accommodate the left sidebar
         self.geometry("650x500")
@@ -264,7 +259,7 @@ class SecureVaultApp(ctk.CTk):
 
 
     def handle_open_file(self):
-        """Open system file dialog to let users select existing file (askopenfilename won't be grayed out)"""
+        """Open system file dialog to let users select existing file (askopenfilename)"""
         filepath = filedialog.askopenfilename(
             title="Open Existing Vault",
             filetypes=[("SecureVault Database", "*.svdb"), ("All Files", "*.*")]
@@ -288,6 +283,7 @@ class SecureVaultApp(ctk.CTk):
         """Internal method: unified handling of interface update logic after file selection"""
         self.vault_filepath = filepath
 
+        # update the file path
         file_display_name = os.path.basename(self.vault_filepath)
         self.file_label.configure(text=f"Selected Vault: {file_display_name}")
 
@@ -295,6 +291,7 @@ class SecureVaultApp(ctk.CTk):
             self.vault_filepath) else "Create a master password for new vault"
         self.subtitle_label.configure(text=prompt_text)
 
+        # clean password field and status message to avoid confusion after switching files
         self.password_entry.delete(0, 'end')
         self.status_label.configure(text="")
 
@@ -363,13 +360,13 @@ class SecureVaultApp(ctk.CTk):
 
 
     def show_main_vault_screen(self):
-        """Enter the main password vault interface (corresponding to Proposal's All Passwords interface)"""
-        # ====== Ultimate fix: indiscriminate screen clearing ======
+        """Enter the main password vault interface to show the main window after unlock"""
+        # fix: indiscriminate screen clearing
         # Traverse all components on the current main window, uproot and completely destroy them
         # This guarantees 100% that the old interface won't remain, completely preventing pack and grid conflicts!
         for widget in self.winfo_children():
             widget.destroy()
-        # ======================================
+
 
         # 2. Adjust window size to fit main interface (Mockup shows this is a widescreen interface)
         self.geometry("900x600")
@@ -433,31 +430,13 @@ class SecureVaultApp(ctk.CTk):
         # When first entering the main interface, simulate clicking "All Passwords" tab by default (this way it has a highlight background)
         self.nav_click_all_passwords()
 
-        # ====== New: Lock and Switch Vault button ======
-        self.nav_lock_btn = ctk.CTkButton(
-            self.sidebar_frame, text="🔒 Lock & Switch",
-            fg_color="#d9534f", hover_color="#c9302c", anchor="w",  # Red warning color
-            command=self.handle_logout  # Bind to active exit method
-        )
-        # Place in row 5 to move it down a bit
-        self.nav_lock_btn.grid(row=5, column=0, padx=20, pady=(50, 20), sticky="ew")
-        ToolTip(self.nav_lock_btn, "Lock vault and return to login screen")  # New
-
-        # ==========================================
-        # Right side: Main Content Area (Main Content)
-        # ==========================================
-        self.main_content_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_content_frame.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
-
-        # When first entering the main interface, display the "All Passwords" list by default
-        self.show_password_list()
 
     def show_password_list(self, search_query=""):
         """Display password list on the right side, supporting search and filtering (restore Proposal Req 6)"""
         for widget in self.main_content_frame.winfo_children():
             widget.destroy()
 
-        # --- Top: Title and search bar ---
+        # Top: Title and search bar
         header_frame = ctk.CTkFrame(self.main_content_frame, fg_color="transparent")
         header_frame.pack(fill="x", pady=(0, 20))
 
@@ -484,7 +463,7 @@ class SecureVaultApp(ctk.CTk):
         self.list_status_label = ctk.CTkLabel(header_frame, text="", text_color="green")
         self.list_status_label.pack(side="right", padx=20)
 
-        # --- List area ---
+        # List area
         list_frame = ctk.CTkScrollableFrame(self.main_content_frame, fg_color="transparent")
         list_frame.pack(fill="both", expand=True)
 
@@ -532,7 +511,7 @@ class SecureVaultApp(ctk.CTk):
             delete_btn.pack(side="right", padx=(0, 15))
             ToolTip(delete_btn, "Permanently delete this entry")  # New
 
-            # --- New: Orange edit button ---
+            # Orange edit button
             edit_btn = ctk.CTkButton(
                 card, text="Edit", width=60, fg_color="#f0ad4e", hover_color="#ec971f", text_color="black",
                 # When clicked, pass this entry's index (idx) and content (itm) to the edit form
@@ -547,7 +526,7 @@ class SecureVaultApp(ctk.CTk):
                 command=lambda pwd=item.get("password"), site=site_name: self.copy_to_clipboard(pwd, site)
             )
             copy_btn.pack(side="right", padx=(0, 10))
-            ToolTip(copy_btn, "Copy password to clipboard")  # New
+            ToolTip(copy_btn, "Copy password to clipboard")
 
 
     def show_edit_password_form(self, index, item):
@@ -593,14 +572,13 @@ class SecureVaultApp(ctk.CTk):
         # Bind key release event to dynamically evaluate the updated password strength
         self.edit_entry_password.bind("<KeyRelease>", self.update_edit_password_strength)
 
-        # --- New: Eye icon button for Edit interface ---
+        # Eye icon button for Edit interface
         self.btn_show_edit_pwd = ctk.CTkButton(
             pwd_frame, text="👁️", width=30, fg_color="transparent", border_width=1, text_color=("gray10", "gray90"),
             command=lambda: self.toggle_password_visibility(self.edit_entry_password, self.btn_show_edit_pwd)
         )
         self.btn_show_edit_pwd.pack(side="left", padx=(0, 10))
         ToolTip(self.btn_show_edit_pwd, "Show/Hide Password")
-        # -----------------------------------
 
         # Generate new password button
         btn_generate = ctk.CTkButton(pwd_frame, text="Generate New", width=110,
@@ -608,9 +586,8 @@ class SecureVaultApp(ctk.CTk):
         btn_generate.pack(side="left")
         ToolTip(btn_generate, "Generate a new secure password")
 
-        # ==========================================
-        # 【new】：Password strength progress bar section (only for edit page)
-        # ==========================================
+
+        # new feature：Password strength progress bar section (only for edit page)
         self.edit_strength_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
         self.edit_strength_frame.pack(anchor="w", pady=(10, 0), fill="x")
 
@@ -626,7 +603,6 @@ class SecureVaultApp(ctk.CTk):
 
         # when entering the edit page, proactively evaluate the strength of the existing password
         self.update_edit_password_strength()
-        # ==========================================
 
         self.edit_status_label = ctk.CTkLabel(form_frame, text="", text_color="red")
         self.edit_status_label.pack(anchor="w", pady=(10, 0))
@@ -660,7 +636,7 @@ class SecureVaultApp(ctk.CTk):
             self.edit_strength_progressbar.configure(progress_color="gray")
 
     def handle_generate_edit_password(self):
-        """Generate new password in edit form"""
+        """Generate new password in edit window"""
         new_pwd = self.vault_service.generate_random_password(length=16)
         self.edit_entry_password.delete(0, 'end')
         self.edit_entry_password.insert(0, new_pwd)
@@ -741,7 +717,7 @@ class SecureVaultApp(ctk.CTk):
     def auto_clear_clipboard(self):
         """Time's up! Forcibly clear system clipboard to prevent password leakage"""
         self.clipboard_clear()
-        self.clipboard_append("")  # <--- [Key fix]: Force write an empty character to completely overwrite OS clipboard
+        self.clipboard_append("")  # <--- Force write an empty character to completely overwrite OS clipboard
         self.update()  # Push to operating system
 
         self.clipboard_timer = None
@@ -784,14 +760,13 @@ class SecureVaultApp(ctk.CTk):
                                            width=240)
         self.entry_password.pack(side="left", padx=(0, 5))
 
-        # --- New: Eye icon button ---
+        # Eye icon button
         self.btn_show_pwd = ctk.CTkButton(
             pwd_frame, text="👁️", width=30, fg_color="transparent", border_width=1, text_color=("gray10", "gray90"),
             command=lambda: self.toggle_password_visibility(self.entry_password, self.btn_show_pwd)
         )
         self.btn_show_pwd.pack(side="left", padx=(0, 10))
         ToolTip(self.btn_show_pwd, "Show/Hide Password")  # Attach previously created Tooltip
-        # -------------------------
 
         # Bind keyboard release event: check strength every time a character is entered
         self.entry_password.bind("<KeyRelease>", self.update_password_strength)
@@ -799,11 +774,11 @@ class SecureVaultApp(ctk.CTk):
         btn_generate = ctk.CTkButton(pwd_frame, text="Generate", width=110, command=self.handle_generate_password)
         btn_generate.pack(side="left")
 
-        # --- New: Add this line to attach hover tooltip ---
+        # Add this line to attach hover tooltip
         ToolTip(btn_generate, "Click to generate a 16-character secure password")
 
-        # --- New: Password strength display label ---
-        # --- Upgraded: Password strength progress bar area ---
+        # Password strength display label
+        # Upgraded: Password strength progress bar area
         self.strength_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
         self.strength_frame.pack(anchor="w", pady=(10, 0), fill="x")
 
@@ -857,10 +832,10 @@ class SecureVaultApp(ctk.CTk):
         # 3. Remove asterisk masking
         self.entry_password.configure(show="")
 
-        # [Key fix]: Because code-inserted passwords don't trigger physical keyboard events, must manually force update once!
+        # Because code-inserted passwords don't trigger physical keyboard events, must manually force update once!
         self.update_password_strength()
 
-        # --- New: Sync update eye icon ---
+        # Sync update eye icon
         if hasattr(self, 'btn_show_pwd') and self.btn_show_pwd.winfo_exists():
             self.btn_show_pwd.configure(text="🙈")
 
@@ -917,7 +892,8 @@ class SecureVaultApp(ctk.CTk):
 
 
     def handle_change_master_password(self):
-        """Handle logic for changing master password: verify identity -> re-encrypt -> overwrite file"""
+        """Handle logic for changing master password"""
+        # verify identity -> re-encrypt -> overwrite file
         old_pwd = self.entry_old_master.get()
         new_pwd = self.entry_new_master.get()
         confirm_pwd = self.entry_confirm_master.get()
@@ -1046,7 +1022,7 @@ class SecureVaultApp(ctk.CTk):
         # Divider line
         ctk.CTkFrame(scroll_frame, height=2, fg_color=("gray80", "gray20")).pack(fill="x", pady=10)
 
-        # ================= Security Settings Area (Change Master Password) =================
+        # ================= Change Master Password =================
         ctk.CTkLabel(scroll_frame, text="Security: Change Master Password",
                      font=ctk.CTkFont(size=18, weight="bold")).pack(anchor="w", pady=(10, 10))
 
@@ -1072,7 +1048,7 @@ class SecureVaultApp(ctk.CTk):
         btn_update = ctk.CTkButton(scroll_frame, text="Update Password", command=self.handle_change_master_password)
         btn_update.pack(anchor="w", pady=(10, 0))
 
-        # ====== New: Danger Zone ======
+        # ====== Danger Zone ======
         ctk.CTkLabel(
             scroll_frame,
             text="Danger Zone",
@@ -1087,7 +1063,7 @@ class SecureVaultApp(ctk.CTk):
         )
         btn_delete_vault.pack(anchor="w", pady=(0, 20))
 
-        # ================= Data Management Area (Export) =================
+        # ================= Export =================
         # Add a gray divider line
         ctk.CTkFrame(scroll_frame, height=2, fg_color=("gray80", "gray20")).pack(fill="x", pady=(20, 10))
 
@@ -1130,7 +1106,7 @@ class SecureVaultApp(ctk.CTk):
             return  # User clicked cancel
 
         try:
-            # 3. Open file and prepare to write (use utf-8 encoding to prevent Chinese encoding issues)
+            # 3. Open file and prepare to write (use utf-8 encoding to prevent some encoding issues)
             with open(filepath, mode='w', newline='', encoding='utf-8') as file:
                 writer = csv.writer(file)
 
@@ -1146,7 +1122,7 @@ class SecureVaultApp(ctk.CTk):
                         item.get("password", "")
                     ])
 
-            # 4. Export successful, call the cool Toast prompt we wrote earlier!
+            # 4. Export successful, call the cool Toast prompt we wrote earlier
             self.show_toast("Data exported successfully! Keep this file secure.", text_color="#5cb85c")
 
         except Exception as e:
