@@ -7,7 +7,7 @@ Ensure you have **Python 3.10 or higher** installed on your system.
 
 ## 1. Installation & Setup
 
-### For macOS Users (Recommended)
+### For macOS Users 💻
 You can easily install Secure Vault using Homebrew via our custom tap:
 ```bash
 brew tap ahsnsz/securevault
@@ -42,12 +42,31 @@ Once the dependencies are installed, you can launch the GUI application directly
 * **On Windows:**
   ```bash
   python main.py
-  
-
+    ```
 
 *(Note: The application dynamically resolves its local database path to the user's `Documents/SecureVault_Data` directory, ensuring persistent read/write capabilities across different operating systems.)*
 
-## 3. Running Automated Tests
+## 3. Building a Standalone Executable
+To create a standalone executable for distribution, we use `PyInstaller`:
+First, install the packaging tool:
+```bash
+pip install pyinstaller
+```
+* ### For macOS (Generates .app bundle):
+    Run the following command in your terminal. The --windowed flag ensures it builds as a native macOS application without a terminal background.
+    ```bash
+    pyinstaller --noconsole --windowed --name "SecureVault" main.py
+    ```
+    Output: The packaged SecureVault.app will be located in the newly created dist/ directory.
+
+* ### For Windows (Generates .exe):
+    Run the identical command in your PowerShell or Command Prompt:
+    ```bash
+    pyinstaller --noconsole --windowed --name "SecureVault" main.py
+    ```
+    Output: The packaged SecureVault.exe will be located in the dist/ directory.
+
+## 4. Running Automated Tests
 
 automated testing for both the Data Access Layer (Cryptography) and the Business Logic Layer.
 
@@ -63,7 +82,7 @@ To verify the secure password generator and password strength evaluator boundari
 python -m unittest discover tests
 ```
 
-## 4. Project Structure Highlights
+## 5. Project Structure Highlights
 * `app/`: Contains the core application logic (Presentation, Business Logic, and Data Access layers).
 * `tests/`: Isolated directory containing all `pytest` and `unittest` scripts.
 * `prototypes/`: Early iteration scripts for UI and Cryptography testing.
