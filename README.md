@@ -5,14 +5,23 @@
 ## Prerequisites
 Ensure you have **Python 3.10 or higher** installed on your system.
 
-## 😀 Installation & Setup
+## 1. Installation & Setup
 
-1. **Extract the ZIP file** and navigate to the project's root directory in your terminal/command prompt (the folder containing `main.py`).
+### For macOS Users (Recommended)
+You can easily install Secure Vault using Homebrew via our custom tap:
+```bash
+brew tap ahsnsz/securevault
+brew install --cask securevault
+```
+
+### 1. **Extract the ZIP file** 
+and navigate to the project's root directory in your terminal/command prompt (the folder containing `main.py`).
    ```bash
    cd path/to/SecureVault
    ```
 
-2. **Install the required dependencies** (CustomTkinter, Cryptography, Pytest).
+### 2. **Install the required dependencies**
+(CustomTkinter, Cryptography, Pytest).
    * **On macOS:**
      ```bash
      pip3 install -r requirements.txt
@@ -22,7 +31,7 @@ Ensure you have **Python 3.10 or higher** installed on your system.
      pip install -r requirements.txt
      ```
 
-## 😃 Running the Application
+## 2. Running the Application
 
 Once the dependencies are installed, you can launch the GUI application directly from the source code.
 
@@ -38,7 +47,7 @@ Once the dependencies are installed, you can launch the GUI application directly
 
 *(Note: The application dynamically resolves its local database path to the user's `Documents/SecureVault_Data` directory, ensuring persistent read/write capabilities across different operating systems.)*
 
-## 😄 Running Automated Tests
+## 3. Running Automated Tests
 
 automated testing for both the Data Access Layer (Cryptography) and the Business Logic Layer.
 
@@ -54,7 +63,7 @@ To verify the secure password generator and password strength evaluator boundari
 python -m unittest discover tests
 ```
 
-## 😁 Project Structure Highlights
+## 4. Project Structure Highlights
 * `app/`: Contains the core application logic (Presentation, Business Logic, and Data Access layers).
 * `tests/`: Isolated directory containing all `pytest` and `unittest` scripts.
 * `prototypes/`: Early iteration scripts for UI and Cryptography testing.
