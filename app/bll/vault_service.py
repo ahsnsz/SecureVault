@@ -3,7 +3,7 @@ import secrets
 import string
 import tempfile
 from pathlib import Path
-from typing import Any, List
+from typing import List
 
 from app.dal.crypto_manager import CryptoManager
 
@@ -18,10 +18,29 @@ class VaultService:
 
     BACKUP_SUFFIX = ".bak"
     PRIVATE_FILE_MODE = 0o600
+    PASSWORD_SYMBOLS = "!@#$%^&*"
+    MIN_MASTER_PASSWORD_LENGTH = 12
+    COMMON_WEAK_PASSWORDS = frozenset(
+        {
+            "password",
+            "password123",
+            "123456789012",
+            "qwertyuiop12",
+            "letmein123456",
+        }
+    )
 
     def __init__(self):
         self.crypto_manager = CryptoManager()
 
+    # =====================================================================
+    # PRIORITY-2 CHANGE 1: Guarantee every requested character category.
+    #
+    # Choosing every position from one combined pool only made uppercase,
+    # digits, and symbols probable. It did not guarantee them. We now select
+    # one character from each enabled category, fill the remaining positions
+    # with the OS-backed CSPRNG, and securely shuffle the final list.
+    # =====================================================================
     def generate_random_password(
         self,
         length=16,
@@ -29,15 +48,112 @@ class VaultService:
         use_digits=True,
         use_symbols=True,
     ) -> str:
-        """Generate a password using the operating system CSPRNG."""
-        chars = string.ascii_lowercase
+        """Generate a password that includes every enabled character class."""
+        if not isinstance(length, int) or isinstance(length, bool):
+            raise TypeError("Password length must be an integer")
+
+        categories = [string.ascii_lowercase]
         if use_upper:
-            chars += string.ascii_uppercase
+            categories.append(string.ascii_uppercase)
         if use_digits:
-            chars += string.digits
+            categories.append(string.digits)
         if use_symbols:
-            chars += "!@#$%^&*"
-        return "".join(secrets.choice(chars) for _ in range(length))
+            categories.append(self.PASSWORD_SYMBOLS)
+
+        if length < len(categories):
+            raise ValueError(
+                "Password length is too short for the selected character classes"
+            )
+
+        password_chars = [secrets.choice(category) for category in categories]
+        combined_pool = "".join(categories)
+        password_chars.extend(
+            secrets.choice(combined_pool)
+            for _ in range(length - len(password_chars))
+        )
+        secrets.SystemRandom().shuffle(password_chars)
+        return "".join(password_chars)
+
+    # =====================================================================
+    # PRIORITY-2 CHANGE 2: One master-password policy for create and change.
+    #
+    # Existing vaults remain unlockable with their original password. The
+    # policy is applied only when a new credential is created, preventing new
+    # weak credentials without locking users out of legacy vaults.
+    # =====================================================================
+    def validate_master_password(self, password: str) -> tuple[bool, str]:
+        """Validate a newly created master password and return UI feedback."""
+        if len(password) < self.MIN_MASTER_PASSWORD_LENGTH:
+            return (
+                False,
+                f"Use at least {self.MIN_MASTER_PASSWORD_LENGTH} characters.",
+            )
+
+        if password.casefold() in self.COMMON_WEAK_PASSWORDS:
+            return False, "This password is too common. Choose a unique phrase."
+
+        if len(set(password)) == 1:
+            return False, "Do not use the same character repeatedly."
+
+        category_count = sum(
+            (
+                any(character.islower() for character in password),
+                any(character.isupper() for character in password),
+                any(character.isdigit() for character in password),
+                any(not character.isalnum() for character in password),
+            )
+        )
+        if category_count < 3:
+            return (
+                False,
+                "Use at least three types: lowercase, uppercase, numbers, symbols.",
+            )
+
+        return True, ""
+
+    # =====================================================================
+    # PRIORITY-2 CHANGE 3: Stable, unique identifiers for password entries.
+    #
+    # Display fields are not identities: two records may legitimately contain
+    # exactly the same site, username, and password. IDs let edit/delete target
+    # one record unambiguously. Legacy entries receive IDs in a copied list so
+    # a failed save never mutates the last committed in-memory state.
+    # =====================================================================
+    @staticmethod
+    def create_entry_id() -> str:
+        """Return a cryptographically random 128-bit entry identifier."""
+        return secrets.token_hex(16)
+
+    def ensure_entry_ids(self, data: List[dict]) -> List[dict]:
+        """Return copied entries with non-empty, unique IDs."""
+        prepared_entries = []
+        seen_ids = set()
+
+        for item in data:
+            prepared_entry = dict(item)
+            entry_id = prepared_entry.get("id")
+            if (
+                not isinstance(entry_id, str)
+                or not entry_id
+                or entry_id in seen_ids
+            ):
+                entry_id = self.create_entry_id()
+                while entry_id in seen_ids:
+                    entry_id = self.create_entry_id()
+
+            prepared_entry["id"] = entry_id
+            seen_ids.add(entry_id)
+            prepared_entries.append(prepared_entry)
+
+        return prepared_entries
+
+    @staticmethod
+    def find_entry_index(data: List[dict], entry_id: str) -> int:
+        """Find an entry by stable ID instead of equality of display fields."""
+        for index, item in enumerate(data):
+            if item.get("id") == entry_id:
+                return index
+        raise ValueError("Password entry no longer exists")
 
     def evaluate_password_strength(
         self,

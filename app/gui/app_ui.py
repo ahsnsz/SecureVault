@@ -1,3 +1,4 @@
+import hmac
 import os
 import json
 from tkinter import filedialog
@@ -93,7 +94,9 @@ class SecureVaultApp(ctk.CTk):
 
         self.vault_filepath = default_vault  # Use the new safe default path
         self.vault_data = []
-        self.master_password = ""  # Initialize as empty
+        self.master_password = ""
+        self.clipboard_timer = None
+        self.copied_password_value = None
 
         self.title("SecureVault")
         self.geometry("400x500")
@@ -105,6 +108,7 @@ class SecureVaultApp(ctk.CTk):
         # After successful testing, before writing the paper, please change it to 300000 (5 minutes).
         self.timeout_ms = 300000
         self.setup_inactivity_tracker()
+        self.protocol("WM_DELETE_WINDOW", self.handle_app_close)
 
         self.build_login_screen()
 
@@ -152,27 +156,33 @@ class SecureVaultApp(ctk.CTk):
 
 
     def lock_vault(self):
-        """Auto-Lock the vault, clear memory data, return to login screen"""
-        # Check: if currently at login screen (no sidebar_frame), don't need to lock again
-        if not hasattr(self, 'sidebar_frame') or not self.sidebar_frame.winfo_exists():
+        """Auto-lock the vault, remove sensitive references, and show login."""
+        # =================================================================
+        # PRIORITY-2 CHANGE 5A: Best-effort session cleanup on auto-lock.
+        #
+        # Python cannot guarantee zeroization of immutable strings, but we can
+        # immediately remove application references and clear our clipboard
+        # value. This also avoids claiming memory is "completely" overwritten.
+        # =================================================================
+        self.clear_sensitive_clipboard(silent=True)
+
+        if (
+            not hasattr(self, "sidebar_frame")
+            or not self.sidebar_frame.winfo_exists()
+        ):
             return
 
-        # 1. Core security step: completely clear plaintext data and master password from memory!
         self.vault_data = []
         self.master_password = ""
 
-        # 2. Destroy the left and right areas of the main interface to prevent data leakage
         self.sidebar_frame.destroy()
         self.main_content_frame.destroy()
-
-        # 3. Restore the login window size
         self.geometry("400x500")
-
-        # 4. Rebuild the login interface
         self.build_login_screen()
-
-        # 5. Give the user a prominent orange notification
-        self.status_label.configure(text="Locked due to inactivity.", text_color="#f0ad4e")
+        self.status_label.configure(
+            text="Locked due to inactivity.",
+            text_color="#f0ad4e",
+        )
 
 
     def build_login_screen(self):
@@ -233,10 +243,29 @@ class SecureVaultApp(ctk.CTk):
                                            text_color="gray")
         self.subtitle_label.pack(pady=(0, 20))
 
-        self.password_entry = ctk.CTkEntry(self.login_frame, placeholder_text="Master password", show="*", width=250,
-                                           height=40)
+        self.password_entry = ctk.CTkEntry(
+            self.login_frame,
+            placeholder_text="Master password",
+            show="*",
+            width=250,
+            height=40,
+        )
         self.password_entry.pack(pady=(0, 10))
         self.password_entry.bind("<Return>", self.handle_unlock)
+
+        # PRIORITY-2 CHANGE 5C: New vaults require the credential twice.
+        # The widget remains available while switching files but is shown only
+        # when the selected path does not already contain a vault.
+        self.confirm_password_entry = ctk.CTkEntry(
+            self.login_frame,
+            placeholder_text="Confirm master password",
+            show="*",
+            width=250,
+            height=40,
+        )
+        if not os.path.exists(self.vault_filepath):
+            self.confirm_password_entry.pack(pady=(0, 10))
+        self.confirm_password_entry.bind("<Return>", self.handle_unlock)
 
         self.status_label = ctk.CTkLabel(self.login_frame, text="", text_color="red")
         self.status_label.pack(pady=(0, 10))
@@ -280,83 +309,138 @@ class SecureVaultApp(ctk.CTk):
 
 
     def _update_filepath_ui(self, filepath):
-        """Internal method: unified handling of interface update logic after file selection"""
+        """Update login controls after selecting a different vault path."""
         self.vault_filepath = filepath
+        vault_exists = os.path.exists(self.vault_filepath)
 
-        # update the file path
         file_display_name = os.path.basename(self.vault_filepath)
-        self.file_label.configure(text=f"Selected Vault: {file_display_name}")
-
-        prompt_text = "Enter master password to unlock" if os.path.exists(
-            self.vault_filepath) else "Create a master password for new vault"
+        self.file_label.configure(
+            text=f"Selected Vault: {file_display_name}"
+        )
+        prompt_text = (
+            "Enter master password to unlock"
+            if vault_exists
+            else "Create a master password for new vault"
+        )
         self.subtitle_label.configure(text=prompt_text)
 
-        # clean password field and status message to avoid confusion after switching files
-        self.password_entry.delete(0, 'end')
+        # PRIORITY-2 CHANGE 5D: Confirmation is required only while creating.
+        if vault_exists:
+            self.confirm_password_entry.pack_forget()
+        elif not self.confirm_password_entry.winfo_manager():
+            self.confirm_password_entry.pack(
+                pady=(0, 10),
+                before=self.status_label,
+            )
+
+        self.password_entry.delete(0, "end")
+        self.confirm_password_entry.delete(0, "end")
         self.status_label.configure(text="")
 
 
     def handle_unlock(self, event=None):
-        """Core logic: Handle encryption/decryption request after button click"""
+        """Create or unlock a vault without retaining failed credentials."""
         password = self.password_entry.get()
+        is_new_vault = not os.path.exists(self.vault_filepath)
 
-        # Save the password entered by the user to an instance attribute to let the program remember the password for later use (remembering the master password is for re-encrypting the file when "saving new data")
-        self.master_password = password
-
+        # =================================================================
+        # PRIORITY-2 CHANGE 5E: Commit sensitive session state only on success.
+        #
+        # Previously self.master_password was assigned before validation or
+        # decryption. A failed attempt therefore remained in application state.
+        # New credentials now also require confirmation and the shared policy.
+        # =================================================================
         if not password:
-            self.status_label.configure(text="Password cannot be empty!", text_color="red")
+            self.master_password = ""
+            self.vault_data = []
+            self.status_label.configure(
+                text="Password cannot be empty!",
+                text_color="red",
+            )
             return
 
-        # Scenario 1: If vault file does not exist, create a new vault
-        if not os.path.exists(self.vault_filepath):
-            try:
-                # Call BLL to create new vault
-                self.vault_data = self.vault_service.create_new_vault(self.vault_filepath, password)
-                self.status_label.configure(text="New vault created!", text_color="green")
-                # [New]: After successful creation, save this file path to "recently used" history
-                self.add_recent_vault(self.vault_filepath)
-                # Delay 1 second before entering main interface (improve user experience)
-                self.after(500, self.show_main_vault_screen)
-            except Exception as e:
-                self.status_label.configure(text=f"Error: {str(e)}", text_color="red")
+        if is_new_vault:
+            confirmation = self.confirm_password_entry.get()
+            if not hmac.compare_digest(password, confirmation):
+                self.master_password = ""
+                self.vault_data = []
+                self.status_label.configure(
+                    text="Master passwords do not match!",
+                    text_color="red",
+                )
+                return
 
-        # Scenario 2: If vault file already exists, try to decrypt
-        else:
-            try:
-                # Call BLL to read and decrypt
-                self.vault_data = self.vault_service.load_vault(self.vault_filepath, password)
-                self.status_label.configure(text="Unlocked successfully!", text_color="green")
-                # [New]: After successful creation, save this file path to "recently used" history
-                self.add_recent_vault(self.vault_filepath)
-                # Delay 1 second before entering main interface
-                self.after(500, self.show_main_vault_screen)
-            except ValueError:
-                # ValueError is the password error exception we throw in DAL (crypto_manager)
-                self.status_label.configure(text="Invalid password! Try again.", text_color="red")
-            except Exception as e:
-                self.status_label.configure(text="File corrupted or unknown error.", text_color="red")
+            is_valid, policy_message = (
+                self.vault_service.validate_master_password(password)
+            )
+            if not is_valid:
+                self.master_password = ""
+                self.vault_data = []
+                self.status_label.configure(
+                    text=policy_message,
+                    text_color="red",
+                )
+                return
+
+        try:
+            if is_new_vault:
+                loaded_data = self.vault_service.create_new_vault(
+                    self.vault_filepath,
+                    password,
+                )
+                success_message = "New vault created!"
+            else:
+                loaded_data = self.vault_service.load_vault(
+                    self.vault_filepath,
+                    password,
+                )
+                success_message = "Unlocked successfully!"
+
+            prepared_data = self.vault_service.ensure_entry_ids(loaded_data)
+
+            # The password and plaintext entries become session state only
+            # after every create/decrypt/validation step has succeeded.
+            self.master_password = password
+            self.vault_data = prepared_data
+            self.status_label.configure(
+                text=success_message,
+                text_color="green",
+            )
+            self.add_recent_vault(self.vault_filepath)
+            self.after(500, self.show_main_vault_screen)
+        except ValueError:
+            self.master_password = ""
+            self.vault_data = []
+            self.status_label.configure(
+                text="Invalid password or vault data!",
+                text_color="red",
+            )
+        except Exception as error:
+            self.master_password = ""
+            self.vault_data = []
+            self.status_label.configure(
+                text=f"Unable to open vault: {error}",
+                text_color="red",
+            )
 
 
     def handle_logout(self):
-        """Actively lock the vault and return to login/switch interface"""
-        # Make sure we are in the main interface
-        if hasattr(self, 'sidebar_frame') and self.sidebar_frame.winfo_exists():
-            # 1. Core security step: completely clear plaintext data and master password from memory!
+        """Actively lock the vault and return to the login/switch screen."""
+        if hasattr(self, "sidebar_frame") and self.sidebar_frame.winfo_exists():
+            # PRIORITY-2 CHANGE 5B: Remove sensitive references and any
+            # password this application still owns on the clipboard.
+            self.clear_sensitive_clipboard(silent=True)
             self.vault_data = []
             self.master_password = ""
 
-            # 2. Destroy the left and right areas of the main interface
             self.sidebar_frame.destroy()
             self.main_content_frame.destroy()
-
-            # 3. Restore the login window size with left sidebar history
             self.geometry("650x500")
-
-            # 4. Rebuild the login interface
             self.build_login_screen()
-
-            # 5. Give the user a green safe logout notification
-            self.status_label.configure(text="Vault locked successfully. Ready to switch.", text_color="green")
+            self.status_label.configure(
+                text="Vault locked successfully. Ready to switch.",
+                text_color="green",
+            )
 
 
     def show_main_vault_screen(self):
@@ -467,6 +551,9 @@ class SecureVaultApp(ctk.CTk):
         list_frame = ctk.CTkScrollableFrame(self.main_content_frame, fg_color="transparent")
         list_frame.pack(fill="both", expand=True)
 
+        # PRIORITY-2 CHANGE 4A: Repair legacy/duplicate IDs before render.
+        self.vault_data = self.vault_service.ensure_entry_ids(self.vault_data)
+
         # Filter data based on search query (case-insensitive)
         filtered_data = []
         for item in self.vault_data:
@@ -483,6 +570,7 @@ class SecureVaultApp(ctk.CTk):
 
         # Render filtered cards
         for item in filtered_data:
+            entry_id = item["id"]
             card = ctk.CTkFrame(list_frame, corner_radius=8)
             card.pack(fill="x", pady=5, padx=5)
 
@@ -501,12 +589,10 @@ class SecureVaultApp(ctk.CTk):
                 ctk.CTkLabel(info_frame, text=account_info, text_color="gray", font=ctk.CTkFont(size=12)).pack(
                     anchor="w")
 
-            # Red delete button
-            # Find the real index of the current item in the original vault_data
-            real_index = self.vault_data.index(item)
+            # Red delete button; target the stable ID, never dict equality.
             delete_btn = ctk.CTkButton(
                 card, text="Delete", width=60, fg_color="#d9534f", hover_color="#c9302c",
-                command=lambda idx=real_index: self.delete_password(idx)
+                command=lambda eid=entry_id: self.delete_password(eid)
             )
             delete_btn.pack(side="right", padx=(0, 15))
             ToolTip(delete_btn, "Permanently delete this entry")  # New
@@ -515,7 +601,7 @@ class SecureVaultApp(ctk.CTk):
             edit_btn = ctk.CTkButton(
                 card, text="Edit", width=60, fg_color="#f0ad4e", hover_color="#ec971f", text_color="black",
                 # When clicked, pass this entry's index (idx) and content (itm) to the edit form
-                command=lambda idx=real_index, itm=item: self.show_edit_password_form(idx, itm)
+                command=lambda eid=entry_id, itm=item: self.show_edit_password_form(eid, itm)
             )
             edit_btn.pack(side="right", padx=(0, 10))
             ToolTip(edit_btn, "Edit this password entry")  # New
@@ -529,7 +615,7 @@ class SecureVaultApp(ctk.CTk):
             ToolTip(copy_btn, "Copy password to clipboard")
 
 
-    def show_edit_password_form(self, index, item):
+    def show_edit_password_form(self, entry_id, item):
         """Display edit form and pre-fill with old password data (restore Proposal Req 5)"""
         # Clear the right content area
         for widget in self.main_content_frame.winfo_children():
@@ -612,7 +698,7 @@ class SecureVaultApp(ctk.CTk):
         btn_frame.pack(anchor="w", pady=(20, 0))
 
         # Save changes
-        btn_save = ctk.CTkButton(btn_frame, text="Save Changes", command=lambda: self.handle_update_password(index))
+        btn_save = ctk.CTkButton(btn_frame, text="Save Changes", command=lambda: self.handle_update_password(entry_id))
         btn_save.pack(side="left", padx=(0, 10))
 
         # Cancel changes and return to list
@@ -649,7 +735,7 @@ class SecureVaultApp(ctk.CTk):
         if hasattr(self, 'btn_show_edit_pwd') and self.btn_show_edit_pwd.winfo_exists():
             self.btn_show_edit_pwd.configure(text="🙈")
 
-    def handle_update_password(self, index):
+    def handle_update_password(self, entry_id):
         """Collect modified data, overwrite old data, and re-encrypt and save"""
         site = self.edit_entry_site.get().strip()
         username = self.edit_entry_username.get().strip()
@@ -660,6 +746,18 @@ class SecureVaultApp(ctk.CTk):
             self.edit_status_label.configure(text="Website and Password are required!", text_color="red")
             return
 
+        try:
+            index = self.vault_service.find_entry_index(
+                self.vault_data,
+                entry_id,
+            )
+        except ValueError as error:
+            self.edit_status_label.configure(
+                text=f"Update failed: {error}",
+                text_color="red",
+            )
+            return
+
         # ==============================================================
         # PRIORITY-1 CHANGE 6A: Copy-on-write edit transaction.
         #
@@ -668,10 +766,11 @@ class SecureVaultApp(ctk.CTk):
         # continue to represent the last successfully saved state.
         # ==============================================================
         updated_entry = {
+            "id": entry_id,
             "site": site,
             "username": username,
             "email": email,
-            "password": password
+            "password": password,
         }
         updated_data = list(self.vault_data)
         updated_data[index] = updated_entry
@@ -700,20 +799,23 @@ class SecureVaultApp(ctk.CTk):
             )
 
 
-    def delete_password(self, index):
-        """Delete specified password and re-encrypt and save"""
+    def delete_password(self, entry_id):
+        """Delete one password entry by its stable identifier."""
         # ==============================================================
-        # PRIORITY-1 CHANGE 6B: Copy-on-write delete transaction.
+        # PRIORITY-2 CHANGE 4B: Resolve the current index from the stable ID.
         #
-        # The previous pop() removed the item before save_vault completed.
-        # Here the original list remains untouched until storage succeeds.
+        # Equal dictionaries no longer cause deletion of the first matching
+        # record, and the original list remains untouched until save succeeds.
         # ==============================================================
-        deleted_item = self.vault_data[index]
-        updated_data = (
-            self.vault_data[:index] + self.vault_data[index + 1:]
-        )
-
         try:
+            index = self.vault_service.find_entry_index(
+                self.vault_data,
+                entry_id,
+            )
+            deleted_item = self.vault_data[index]
+            updated_data = (
+                self.vault_data[:index] + self.vault_data[index + 1:]
+            )
             self.vault_service.save_vault(
                 self.vault_filepath,
                 self.master_password,
@@ -729,40 +831,84 @@ class SecureVaultApp(ctk.CTk):
                 3000,
                 lambda: self.list_status_label.configure(text=""),
             )
-        except Exception as e:
+        except Exception as error:
             self.list_status_label.configure(
-                text=f"Delete failed: {e}",
+                text=f"Delete failed: {error}",
                 text_color="red",
             )
 
 
+    # =====================================================================
+    # PRIORITY-2 CHANGE 6: Clipboard ownership-aware cleanup.
+    #
+    # The former timer always cleared the system clipboard after 30 seconds,
+    # even if the user had copied unrelated text in the meantime. We remember
+    # exactly what SecureVault copied and clear it only while it is unchanged.
+    # Lock, logout, and window close use the same safe cleanup path.
+    # =====================================================================
+    def clear_sensitive_clipboard(self, silent=False):
+        """Clear our copied password only if it still owns the clipboard."""
+        if self.clipboard_timer:
+            try:
+                self.after_cancel(self.clipboard_timer)
+            except Exception:
+                pass
+        self.clipboard_timer = None
+
+        copied_password = self.copied_password_value
+        self.copied_password_value = None
+        if copied_password is None:
+            return False
+
+        try:
+            current_clipboard = self.clipboard_get()
+        except Exception:
+            return False
+
+        if current_clipboard != copied_password:
+            return False
+
+        try:
+            self.clipboard_clear()
+            self.update()
+        except Exception:
+            return False
+
+        if not silent:
+            self.show_toast(
+                "Clipboard auto-cleared for security.",
+                text_color="#f0ad4e",
+            )
+        return True
+
     def copy_to_clipboard(self, password, site_name):
-        """Copy password to system clipboard and start 'Read then delete' countdown"""
-        # 1. Execute copy
+        """Copy a password and start an ownership-aware cleanup timer."""
+        self.clear_sensitive_clipboard(silent=True)
         self.clipboard_clear()
         self.clipboard_append(password)
         self.update()
+        self.copied_password_value = password
 
-        # 2. Update prompt text to inform user of time limit
-        self.show_toast(f"Password for '{site_name}' copied! (Clears in 30s)", text_color="#5cb85c") # Green
-
-        # 3. Read-then-delete logic: If user has already copied other passwords, cancel old countdown
-        if hasattr(self, 'clipboard_timer') and self.clipboard_timer:
-            self.after_cancel(self.clipboard_timer)
-
-        # 4. Set a new 30 second (30000ms) countdown, when time's up execute clear
-        self.clipboard_timer = self.after(30000, self.auto_clear_clipboard)
+        self.show_toast(
+            f"Password for '{site_name}' copied! (Clears in 30s)",
+            text_color="#5cb85c",
+        )
+        self.clipboard_timer = self.after(
+            30000,
+            self.auto_clear_clipboard,
+        )
 
     def auto_clear_clipboard(self):
-        """Time's up! Forcibly clear system clipboard to prevent password leakage"""
-        self.clipboard_clear()
-        self.clipboard_append("")  # <--- Force write an empty character to completely overwrite OS clipboard
-        self.update()  # Push to operating system
-
+        """Clear the copied secret if the clipboard still contains it."""
         self.clipboard_timer = None
+        self.clear_sensitive_clipboard(silent=False)
 
-        # If user is still at password list interface, give an orange security reminder
-        self.show_toast("Clipboard auto-cleared for security.", text_color="#f0ad4e") # Orange
+    def handle_app_close(self):
+        """Best-effort sensitive-state cleanup before closing the window."""
+        self.clear_sensitive_clipboard(silent=True)
+        self.vault_data = []
+        self.master_password = ""
+        self.destroy()
 
 
     def show_add_password_form(self):
@@ -893,10 +1039,11 @@ class SecureVaultApp(ctk.CTk):
 
         # 1. Assemble into a dictionary
         new_entry = {
+            "id": self.vault_service.create_entry_id(),
             "site": site,
             "username": username,
             "email": email,
-            "password": password
+            "password": password,
         }
 
         # ==============================================================
@@ -943,48 +1090,71 @@ class SecureVaultApp(ctk.CTk):
 
 
     def handle_change_master_password(self):
-        """Handle logic for changing master password"""
-        # verify identity -> re-encrypt -> overwrite file
+        """Validate and atomically replace the current master password."""
         old_pwd = self.entry_old_master.get()
         new_pwd = self.entry_new_master.get()
         confirm_pwd = self.entry_confirm_master.get()
 
-        # 1. Basic non-empty validation
         if not old_pwd or not new_pwd or not confirm_pwd:
-            self.change_pwd_status.configure(text="All fields are required!", text_color="red")
+            self.change_pwd_status.configure(
+                text="All fields are required!",
+                text_color="red",
+            )
             return
 
-        # 2. Verify old password is correct (using self.master_password remembered during unlock)
-        if old_pwd != self.master_password:
-            self.change_pwd_status.configure(text="Current password is incorrect!", text_color="red")
+        if not hmac.compare_digest(old_pwd, self.master_password):
+            self.change_pwd_status.configure(
+                text="Current password is incorrect!",
+                text_color="red",
+            )
             return
 
-        # 3. Verify new password rules
-        if new_pwd == old_pwd:
-            self.change_pwd_status.configure(text="New password must be different from the old one!", text_color="red")
+        if hmac.compare_digest(new_pwd, old_pwd):
+            self.change_pwd_status.configure(
+                text="New password must be different from the old one!",
+                text_color="red",
+            )
             return
 
-        if new_pwd != confirm_pwd:
-            self.change_pwd_status.configure(text="New passwords do not match!", text_color="red")
+        if not hmac.compare_digest(new_pwd, confirm_pwd):
+            self.change_pwd_status.configure(
+                text="New passwords do not match!",
+                text_color="red",
+            )
+            return
+
+        # PRIORITY-2 CHANGE 5F: Changing credentials uses the same policy as
+        # new-vault creation. The in-memory credential changes only after the
+        # re-encrypted vault has been saved successfully.
+        is_valid, policy_message = (
+            self.vault_service.validate_master_password(new_pwd)
+        )
+        if not is_valid:
+            self.change_pwd_status.configure(
+                text=policy_message,
+                text_color="red",
+            )
             return
 
         try:
-            # 4. Call BLL manager to re-encrypt current vault_data with [new password] and overwrite save
-            self.vault_service.save_vault(self.vault_filepath, new_pwd, self.vault_data)
-
-            # 5. Very important: Update password remembered in memory to prevent using wrong old password for subsequent add/delete operations!
+            self.vault_service.save_vault(
+                self.vault_filepath,
+                new_pwd,
+                self.vault_data,
+            )
             self.master_password = new_pwd
-
-            # 6. UI feedback
-            self.change_pwd_status.configure(text="Master password updated successfully!", text_color="green")
-
-            # Clear input fields
-            self.entry_old_master.delete(0, 'end')
-            self.entry_new_master.delete(0, 'end')
-            self.entry_confirm_master.delete(0, 'end')
-
-        except Exception as e:
-            self.change_pwd_status.configure(text=f"Failed to update password: {e}", text_color="red")
+            self.change_pwd_status.configure(
+                text="Master password updated successfully!",
+                text_color="green",
+            )
+            self.entry_old_master.delete(0, "end")
+            self.entry_new_master.delete(0, "end")
+            self.entry_confirm_master.delete(0, "end")
+        except Exception as error:
+            self.change_pwd_status.configure(
+                text=f"Failed to update password: {error}",
+                text_color="red",
+            )
 
 
     def show_toast(self, message, text_color="white"):
