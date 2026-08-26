@@ -9,6 +9,14 @@ argon2-cffi==25.1.0
 cryptography==46.0.4
 customtkinter==5.2.2
 
-# macOS-only dependencies used by app/dal/mac_biometrics.py.
+# ======================================================================
+# PRIORITY-2 CHANGE 7H: Optional macOS Touch ID runtime dependencies.
+#
+# keyring stores a vault-specific credential in the current user's macOS
+# Keychain. LocalAuthentication displays the native Touch ID prompt. The
+# platform markers are intentional: pip installs these packages on macOS and
+# skips them elsewhere, keeping Windows/source-test installations portable.
+# Development and PyInstaller tooling remains in requirements-dev.txt.
+# ======================================================================
 keyring==25.7.0; sys_platform == "darwin"
 pyobjc-framework-LocalAuthentication==12.2.1; sys_platform == "darwin"

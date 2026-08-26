@@ -1,89 +1,213 @@
-# Secure Vault - Password Manager
+# SecureVault - Password Manager
+
 **University of Liverpool | COMP390 FYP 2025/26**
+
 **Author:** Zhouyang Shen (201850515)
 
-## Prerequisites
-Ensure you have **Python 3.10 or higher** installed on your system.
+SecureVault is a local desktop password manager built with Python and
+CustomTkinter. Vault data is encrypted on disk with AES-256-GCM, and the
+encryption key is derived from the master password with Argon2id.
 
-## 1. Installation & Setup
+<!--
+PRIORITY-2 DOCUMENTATION UPDATE:
+This README now matches the current security model, Touch ID workflow,
+dependency split, test suite, and PyInstaller specification.
+-->
 
-### For macOS Users 💻
-You can easily install Secure Vault using Homebrew via our custom tap:
+## Features
+
+- Create, open, switch, lock, and delete encrypted `.svdb` vaults.
+- Add, search, edit, copy, and delete password records.
+- Generate cryptographically secure passwords with guaranteed selected
+  character categories.
+- Protect new master passwords with one consistent password policy.
+- Auto-lock an open vault after 5 minutes of inactivity.
+- Clear an application-owned copied password after 30 seconds without
+  overwriting newer clipboard content copied by another application.
+- Use optional, vault-specific Touch ID unlock on supported Macs.
+- Save vault updates atomically and keep a `.bak` recovery copy.
+- Continue opening vaults created with the earlier SecureVault file format.
+
+## Requirements
+
+- Python 3.10 or newer
+- Windows or macOS for the desktop interface
+- macOS with Touch ID enrolled to use biometric unlock
+
+Runtime dependencies are pinned in `requirements.txt`. Test and packaging
+tools are kept separately in `requirements-dev.txt`.
+
+## Installation
+
+### Install from source
+
+1. Extract or clone the project and enter its root directory:
+
+   ```bash
+   cd path/to/SecureVault
+   ```
+
+2. Create and activate a virtual environment (recommended):
+
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+   On Windows PowerShell, activate it with:
+
+   ```powershell
+   .venv\Scripts\Activate.ps1
+   ```
+
+3. Install the runtime dependencies:
+
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+
+   The Touch ID packages use a macOS environment marker, so pip skips them
+   automatically on Windows and other operating systems.
+
+### Install the packaged macOS application
+
+If the Homebrew release is available:
+
 ```bash
 brew tap ahsnsz/securevault
 brew install --cask securevault
 ```
 
-### 1. **Extract the ZIP file** 
-and navigate to the project's root directory in your terminal/command prompt (the folder containing `main.py`).
-   ```bash
-   cd path/to/SecureVault
-   ```
+## Run the application
 
-### 2. **Install the required dependencies**
-(CustomTkinter, Cryptography, Pytest).
-   * **On macOS:**
-     ```bash
-     pip3 install -r requirements.txt
-     ```
-   * **On Windows:**
-     ```bash
-     pip install -r requirements.txt
-     ```
+From the project root:
 
-## 2. Running the Application
-
-Once the dependencies are installed, you can launch the GUI application directly from the source code.
-
-* **On macOS:**
-  ```bash
-  python3 main.py
-  ```
-* **On Windows:**
-  ```bash
-  python main.py
-    ```
-
-*(Note: The application dynamically resolves its local database path to the user's `Documents/SecureVault_Data` directory, ensuring persistent read/write capabilities across different operating systems.)*
-
-## 3. Building a Standalone Executable
-To create a standalone executable for distribution, we use `PyInstaller`:
-First, install the packaging tool:
 ```bash
-pip install pyinstaller
-```
-* ### For macOS (Generates .app bundle):
-    Run the following command in your terminal. The --windowed flag ensures it builds as a native macOS application without a terminal background.
-    ```bash
-    pyinstaller --noconsole --windowed --name "SecureVault" main.py
-    ```
-    Output: The packaged SecureVault.app will be located in the newly created dist/ directory.
-
-* ### For Windows (Generates .exe):
-    Run the identical command in your PowerShell or Command Prompt:
-    ```bash
-    pyinstaller --noconsole --windowed --name "SecureVault" main.py
-    ```
-    Output: The packaged SecureVault.exe will be located in the dist/ directory.
-
-## 4. Running Automated Tests
-
-automated testing for both the Data Access Layer (Cryptography) and the Business Logic Layer.
-
-**1. Run Cryptographic Integrity Tests (pytest):**
-To verify the AES-256-GCM encryption, Argon2id key derivation, and offline file tampering defenses:
-```bash
-pytest tests/
+python main.py
 ```
 
-**2. Run Business Logic Tests (unittest):**
-To verify the secure password generator and password strength evaluator boundaries:
-```bash
-python -m unittest discover tests
+The default vault and recent-vault list are stored in:
+
+```text
+~/Documents/SecureVault_Data/
 ```
 
-## 5. Project Structure Highlights
-* `app/`: Contains the core application logic (Presentation, Business Logic, and Data Access layers).
-* `tests/`: Isolated directory containing all `pytest` and `unittest` scripts.
-* `prototypes/`: Early iteration scripts for UI and Cryptography testing.
-* `SecureVault.spec`: Configuration file demonstrating the `PyInstaller` build process for cross-platform packaging.
+You can select another `.svdb` path from the login screen.
+
+## Create or unlock a vault
+
+### Create a new vault
+
+1. Select a new vault path or use the default path.
+2. Enter the new master password twice.
+3. Select **Enable Touch ID after successful password unlock** if you want to
+   opt in on a supported Mac.
+4. Select **Unlock / Create Vault**.
+
+New master passwords must:
+
+- contain at least 12 characters;
+- use at least three of these categories: lowercase letters, uppercase
+  letters, numbers, and symbols;
+- not be a known common password; and
+- not repeat the same character for the entire password.
+
+The new policy applies when creating a vault or changing its master password.
+Existing vaults can still be opened with their original master password.
+
+### Unlock an existing vault with its password
+
+1. Select the vault from **Recent Vaults** or choose its file.
+2. Enter its master password.
+3. Optionally select **Enable Touch ID after successful password unlock**.
+4. Select **Unlock / Create Vault**.
+
+SecureVault does not retain a failed master-password attempt as session state.
+
+## Use Touch ID on macOS
+
+Touch ID is optional and is enabled separately for each vault. The saved
+credential is stored in the current macOS user's Keychain under an identifier
+derived from the selected vault path.
+
+To enable it:
+
+1. Confirm that Touch ID is enrolled in macOS System Settings.
+2. Open the vault once with its current master password.
+3. Before unlocking, select **Enable Touch ID after successful password
+   unlock**.
+4. Complete the normal password unlock. SecureVault saves the credential only
+   after the vault has been opened successfully.
+
+On a later launch, select the same vault and choose **Unlock with Touch ID**.
+SecureVault performs biometric authentication before reading the saved
+credential. A request times out after 30 seconds, and password unlock always
+remains available.
+
+To remove the saved Touch ID credential, open the vault and go to:
+
+```text
+Settings > Touch ID > Forget Touch ID Credential
+```
+
+Deleting a vault through SecureVault also removes its saved Touch ID
+credential. If the master password changes while Touch ID is enabled for the
+current session, the Keychain credential is updated after the encrypted vault
+has been replaced successfully.
+
+## Install development tools and run tests
+
+Install the runtime, test, and packaging dependencies together:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+Run the complete automated test suite:
+
+```bash
+python -m pytest tests -v
+```
+
+The suite covers encryption and tamper detection, file-format compatibility,
+atomic persistence and backup recovery, master-password validation, password
+generation, stable record IDs, clipboard ownership, and portable Touch ID
+behavior with mocked macOS services.
+
+## Build a standalone application
+
+Install the development dependencies, then build with the checked-in
+PyInstaller specification:
+
+```bash
+python -m pip install -r requirements-dev.txt
+pyinstaller --clean SecureVault.spec
+```
+
+Build output is written to `dist/`. The specification declares the lazy
+Touch ID and macOS Keychain imports required by the packaged macOS app.
+
+## Project structure
+
+```text
+SecureVault/
+├── app/
+│   ├── bll/                 # Password policy and vault business logic
+│   ├── dal/                 # Encryption, persistence, and Touch ID/Keychain
+│   └── gui/                 # CustomTkinter interface
+├── tests/                   # Automated tests
+├── main.py                  # Application entry point
+├── requirements.txt         # Runtime dependencies
+├── requirements-dev.txt     # Test and packaging dependencies
+└── SecureVault.spec         # PyInstaller build configuration
+```
+
+## Security notes
+
+- Keep the master password safe. SecureVault has no password-recovery service.
+- Do not share `.svdb` files together with their master password.
+- Touch ID convenience does not replace encryption; the master password is
+  still required to derive the vault's encryption key.
+- Python cannot guarantee complete in-memory zeroization of immutable strings,
+  but SecureVault removes sensitive session references and owned clipboard
+  content when locking, logging out, or closing.
