@@ -1,19 +1,14 @@
-altgraph==0.17.5
+# ======================================================================
+# PRIORITY-1 CHANGE 7: Reproducible direct runtime dependencies only.
+#
+# The previous file contained transitive packages and a local Conda build
+# path (file:///opt/miniconda3/...), which could not work on another machine.
+# Development/build tools now live in requirements-dev.txt.
+# ======================================================================
 argon2-cffi==25.1.0
-argon2-cffi-bindings==25.1.0
-cffi==2.0.0
 cryptography==46.0.4
 customtkinter==5.2.2
-darkdetect==0.8.0
-exceptiongroup==1.3.1
-iniconfig==2.3.0
-macholib==1.16.4
-packaging @ file:///opt/miniconda3/conda-bld/packaging_1761049079158/work
-pluggy==1.6.0
-pycparser==3.0
-Pygments==2.19.2
-pyinstaller==6.19.0
-pyinstaller-hooks-contrib==2026.3
-pytest==9.0.2
-tomli==2.4.0
-typing_extensions==4.15.0
+
+# macOS-only dependencies used by app/dal/mac_biometrics.py.
+keyring==25.7.0; sys_platform == "darwin"
+pyobjc-framework-LocalAuthentication==12.2.1; sys_platform == "darwin"

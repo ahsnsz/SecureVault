@@ -1,126 +1,279 @@
-import os
-import json
 import base64
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
-from cryptography.hazmat.primitives import hashes
+import json
+import os
+from typing import Any, Dict, Tuple
+
+from argon2.low_level import ARGON2_VERSION, Type, hash_secret_raw
 from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 
 class CryptoManager:
     """
-    Data Access Layer (DAL) Security Core.
-    Responsible for handling all encryption (AES-GCM) and key derivation (Argon2id)
+    Data Access Layer security core.
+
+    New vaults use the versioned v2 container. Existing pre-v2 vaults remain
+    readable and will be upgraded automatically the next time they are saved.
     """
 
+    # =====================================================================
+    # PRIORITY-1 CHANGE 1: Versioned, self-describing vault file format.
+    #
+    # v2 binary layout:
+    #   [MAGIC:4][VERSION:1][HEADER_LENGTH:4][HEADER:JSON][NONCE][CIPHERTEXT]
+    #
+    # The complete prefix through HEADER is authenticated as AES-GCM AAD.
+    # Consequently, changing the version, KDF parameters, or salt causes
+    # authentication to fail instead of silently changing decryption behavior.
+    # =====================================================================
+    MAGIC = b"SVDB"
+    FORMAT_VERSION = 2
+    HEADER_LENGTH_BYTES = 4
+    MAX_HEADER_LENGTH = 16 * 1024
+    GCM_NONCE_LENGTH = 12
+    GCM_TAG_LENGTH = 16
+
     def __init__(self):
-        # Configure Argon2id parameters
-        # According to the detailed proposal, we need to resist GPU attacks, so we need high memory consumption.
+        # These values are written into each v2 file. They are data rather than
+        # hidden application constants, so a future release can migrate KDF
+        # settings while retaining the ability to read older files.
         self.kdf_params = {
-            "algorithm": hashes.SHA256(),
-            "length": 32,  # Generate 32 bytes (256-bit) key corresponding to AES-256
-            "salt_len": 16,  # 16 bytes random Salt
-            "iterations": 2,  # Number of iterations (Time cost)
-            "memory_cost": 64 * 1024,  # Memory consumption 64MB (Memory cost) to resist GPU attacks
-            "parallelism": 4,  # Degree of parallelism
+            "name": "argon2id",
+            "version": ARGON2_VERSION,
+            "length": 32,
+            "salt_len": 16,
+            "time_cost": 2,
+            "memory_cost": 64 * 1024,
+            "parallelism": 4,
         }
 
-
-    def _derive_key(self, password: str, salt: bytes) -> bytes:
-        # Key derivation
-        # The user's password length is variable and not random.
-        # The AES encryption algorithm requires a fixed-length (32-byte) and seemingly random binary string as the Key.
-        # KDF (Key Derivation Function) is responsible for converting a "weak password" into a "strong key".
-        # Salt (salt) function: If no salt is added, two users with the same password "123456" would generate the same Key.
-        # With random salt, even if passwords are the same, the generated Key is completely different, preventing "rainbow table" attacks.
-        """
-        Internal method: Use Argon2id to convert user master password to encryption key.
-        """
-        kdf = Argon2id(
+    # =====================================================================
+    # PRIORITY-1 CHANGE 2: Use argon2-cffi instead of the OpenSSL-dependent
+    # cryptography Argon2id wrapper.
+    #
+    # Some valid Python/OpenSSL installations do not expose Argon2id through
+    # cryptography. argon2-cffi provides the same standard Argon2id output and
+    # can therefore decrypt both existing vaults and the new v2 format.
+    # =====================================================================
+    def _derive_key(
+        self,
+        password: str,
+        salt: bytes,
+        params: Dict[str, int] | None = None,
+    ) -> bytes:
+        selected = params or self.kdf_params
+        return hash_secret_raw(
+            secret=password.encode("utf-8"),
             salt=salt,
-            length=self.kdf_params["length"],
-            iterations=self.kdf_params["iterations"],
-            memory_cost=self.kdf_params["memory_cost"],
-            lanes=self.kdf_params["parallelism"]
+            time_cost=selected["time_cost"],
+            memory_cost=selected["memory_cost"],
+            parallelism=selected["parallelism"],
+            hash_len=selected["length"],
+            type=Type.ID,
+            version=selected.get("version", ARGON2_VERSION),
         )
-        # Convert string password to bytes and derive
-        # return kdf.derive(password.encode('utf-8'))
-        # 1. Derive 32 bytes of binary Key
-        key = kdf.derive(password.encode('utf-8'))
 
-        # # ==========================================
-        # # 🛠️ Temporary debug code: Watch the Key being created
-        # # ==========================================
-        # print("\n" + "=" * 40)
-        # print("🔐 [Security Core Execution Log] Key derivation successful!")
-        # print(f"👉 Plaintext password entered by user: {password}")
-        # print(f"🧂 Randomly generated Salt (hexadecimal): {salt.hex()}")
-        # print(f"🔑 Derived AES Key (hexadecimal): {key.hex()}")
-        # print(f"📏 Exact length of Key: {len(key)} bytes (corresponding to AES-256)")
-        # print("=" * 40 + "\n")
-        # # ==========================================
+    def _build_header(self, salt: bytes) -> bytes:
+        header = {
+            "format": "SecureVault",
+            "version": self.FORMAT_VERSION,
+            "kdf": {
+                "name": self.kdf_params["name"],
+                "version": self.kdf_params["version"],
+                "length": self.kdf_params["length"],
+                "time_cost": self.kdf_params["time_cost"],
+                "memory_cost": self.kdf_params["memory_cost"],
+                "parallelism": self.kdf_params["parallelism"],
+            },
+            "cipher": {
+                "name": "aes-256-gcm",
+                "nonce_length": self.GCM_NONCE_LENGTH,
+            },
+            "salt": base64.b64encode(salt).decode("ascii"),
+        }
+        # Stable serialization makes the authenticated prefix deterministic
+        # for a given header and avoids parser-dependent whitespace.
+        return json.dumps(
+            header,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
 
-        return key
-
-    def encrypt_data(self, data: dict, password: str) -> bytes:
-        """
-        Encryption process:
-        1. Generate random Salt
-        2. Derive key (Key)
-        3. Generate random Nonce
-        4. AES-GCM encryption
-        5. Package and return (Salt + Nonce + Ciphertext)
-        """
-        # 1. Generate unique random Salt
+    def encrypt_data(self, data: Any, password: str) -> bytes:
+        """Encrypt data into a versioned SecureVault v2 container."""
         salt = os.urandom(self.kdf_params["salt_len"])
-
-        # 2. Derive key (AES-256 Key) [Create key: use salt + password -> calculate AES Key]
+        nonce = os.urandom(self.GCM_NONCE_LENGTH)
         key = self._derive_key(password, salt)
 
-        # 3. Initialize AES-GCM and generate Nonce (IV) [AES-GCM needs a "one-time number" (Nonce), must never repeat]
-        aesgcm = AESGCM(key)
-        nonce = os.urandom(12)  # GCM standard recommends 12-byte Nonce
+        header_bytes = self._build_header(salt)
+        prefix = (
+            self.MAGIC
+            + bytes([self.FORMAT_VERSION])
+            + len(header_bytes).to_bytes(self.HEADER_LENGTH_BYTES, "big")
+            + header_bytes
+        )
 
-        # Prepare data: convert dictionary to JSON string then to bytes
-        json_data = json.dumps(data).encode('utf-8')
+        plaintext = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        ciphertext = AESGCM(key).encrypt(nonce, plaintext, prefix)
+        return prefix + nonce + ciphertext
 
-        # 4. Encrypt
-        ciphertext = aesgcm.encrypt(nonce, json_data, None)
-
-        # 5. Package: For convenient decryption, we need to store Salt and Nonce together with the ciphertext
-        # Format: [Salt (16 bytes)] [Nonce (12 bytes)] [Ciphertext (remaining)]
-        return salt + nonce + ciphertext
-
-
-    def decrypt_data(self, encrypted_data: bytes, password: str) -> dict:
+    def decrypt_data(self, encrypted_data: bytes, password: str) -> Any:
         """
-        Decryption process:
-        1. Extract Salt and Nonce
-        2. Re-derive key
-        3. AES-GCM decryption (automatically verify integrity)
+        Decrypt either a versioned v2 vault or a legacy salt/nonce/ciphertext
+        vault. A successful save upgrades legacy data to v2 automatically.
         """
         try:
-            # Check if data length is valid (must have at least Salt + Nonce)
-            if len(encrypted_data) < 28:
-                raise ValueError("Data corrupted")
+            if encrypted_data.startswith(self.MAGIC):
+                return self._decrypt_v2(encrypted_data, password)
+            return self._decrypt_legacy(encrypted_data, password)
+        except InvalidTag as exc:
+            # Wrong passwords and authenticated-data tampering intentionally
+            # share one message so the file does not disclose which occurred.
+            raise ValueError("Invalid Password or Corrupted Data") from exc
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError(f"Decryption failed: {exc}") from exc
 
-            # 1. Extract header information [Unpack: slice in the order they were stored]
-            salt = encrypted_data[:16] # First 16 bytes is salt
-            nonce = encrypted_data[16:28] # Next 12 bytes is Nonce
-            ciphertext = encrypted_data[28:] # The rest is ciphertext
+    def _decrypt_v2(self, encrypted_data: bytes, password: str) -> Any:
+        fixed_prefix_length = len(self.MAGIC) + 1 + self.HEADER_LENGTH_BYTES
+        if len(encrypted_data) < fixed_prefix_length:
+            raise ValueError("Data corrupted: incomplete vault header")
 
-            # 2. Use the same parameters and Salt to re-derive the key [Restore key: use read Salt + user-entered password -> calculate Key]
-            key = self._derive_key(password, salt)
+        version = encrypted_data[len(self.MAGIC)]
+        if version != self.FORMAT_VERSION:
+            raise ValueError(f"Unsupported vault format version: {version}")
 
-            # 3. Decrypt
-            aesgcm = AESGCM(key)
-            # decrypt method automatically verifies Tag, raises InvalidTag exception if not matched [This step is for identity verification]
-            plaintext_bytes = aesgcm.decrypt(nonce, ciphertext, None)
+        length_start = len(self.MAGIC) + 1
+        length_end = length_start + self.HEADER_LENGTH_BYTES
+        header_length = int.from_bytes(
+            encrypted_data[length_start:length_end],
+            "big",
+        )
+        if not 0 < header_length <= self.MAX_HEADER_LENGTH:
+            raise ValueError("Data corrupted: invalid vault header length")
 
-            # Convert back to dictionary
-            return json.loads(plaintext_bytes.decode('utf-8'))
+        header_end = fixed_prefix_length + header_length
+        minimum_length = (
+            header_end + self.GCM_NONCE_LENGTH + self.GCM_TAG_LENGTH
+        )
+        if len(encrypted_data) < minimum_length:
+            raise ValueError("Data corrupted: truncated encrypted payload")
 
-        except InvalidTag:
-            # This is the characteristic of AES-GCM, if the password is wrong or the file has been tampered with, Tag verification will fail
-            raise ValueError("Invalid Password or Corrupted Data")
-        except Exception as e:
-            raise ValueError(f"Decryption failed: {str(e)}")
+        header_bytes = encrypted_data[fixed_prefix_length:header_end]
+        try:
+            header = json.loads(header_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Data corrupted: invalid vault header") from exc
+
+        salt, params, nonce_length = self._validate_header(header)
+        nonce_end = header_end + nonce_length
+        nonce = encrypted_data[header_end:nonce_end]
+        ciphertext = encrypted_data[nonce_end:]
+        authenticated_prefix = encrypted_data[:header_end]
+
+        key = self._derive_key(password, salt, params)
+        plaintext = AESGCM(key).decrypt(
+            nonce,
+            ciphertext,
+            authenticated_prefix,
+        )
+        return json.loads(plaintext.decode("utf-8"))
+
+    def _validate_header(
+        self,
+        header: Dict[str, Any],
+    ) -> Tuple[bytes, Dict[str, int], int]:
+        """
+        Validate unauthenticated resource-cost fields before using them.
+
+        Bounds prevent a malicious file from requesting extreme Argon2 memory,
+        CPU, or thread counts before AES-GCM can authenticate the header.
+        """
+        if not isinstance(header, dict):
+            raise ValueError("Data corrupted: vault header is not an object")
+        if (
+            header.get("format") != "SecureVault"
+            or header.get("version") != self.FORMAT_VERSION
+        ):
+            raise ValueError("Data corrupted: invalid vault identity")
+
+        kdf = header.get("kdf")
+        cipher = header.get("cipher")
+        if not isinstance(kdf, dict) or not isinstance(cipher, dict):
+            raise ValueError("Data corrupted: missing crypto parameters")
+        if kdf.get("name") != "argon2id":
+            raise ValueError("Unsupported KDF")
+        if cipher.get("name") != "aes-256-gcm":
+            raise ValueError("Unsupported cipher")
+
+        fields = (
+            "version",
+            "length",
+            "time_cost",
+            "memory_cost",
+            "parallelism",
+        )
+        if any(
+            not isinstance(kdf.get(field), int)
+            or isinstance(kdf.get(field), bool)
+            for field in fields
+        ):
+            raise ValueError("Data corrupted: invalid KDF parameters")
+
+        params = {field: kdf[field] for field in fields}
+        if params["version"] != ARGON2_VERSION:
+            raise ValueError("Unsupported Argon2 version")
+        if params["length"] != 32:
+            raise ValueError("Unsupported derived-key length")
+        if not 1 <= params["time_cost"] <= 10:
+            raise ValueError("Unsafe Argon2 time cost")
+        if not 8 * 1024 <= params["memory_cost"] <= 256 * 1024:
+            raise ValueError("Unsafe Argon2 memory cost")
+        if not 1 <= params["parallelism"] <= 16:
+            raise ValueError("Unsafe Argon2 parallelism")
+
+        nonce_length = cipher.get("nonce_length")
+        if nonce_length != self.GCM_NONCE_LENGTH:
+            raise ValueError("Unsupported AES-GCM nonce length")
+
+        try:
+            salt = base64.b64decode(header["salt"], validate=True)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Data corrupted: invalid salt") from exc
+        if not 16 <= len(salt) <= 64:
+            raise ValueError("Data corrupted: invalid salt length")
+
+        return salt, params, nonce_length
+
+    # =====================================================================
+    # PRIORITY-1 CHANGE 3: Backward-compatibility reader.
+    #
+    # Legacy layout:
+    #   [SALT:16][NONCE:12][CIPHERTEXT]
+    #
+    # Keeping this reader is essential: existing users can unlock old files,
+    # and the next normal save writes the data in the safer v2 format.
+    # =====================================================================
+    def _decrypt_legacy(
+        self,
+        encrypted_data: bytes,
+        password: str,
+    ) -> Any:
+        minimum_length = (
+            self.kdf_params["salt_len"]
+            + self.GCM_NONCE_LENGTH
+            + self.GCM_TAG_LENGTH
+        )
+        if len(encrypted_data) < minimum_length:
+            raise ValueError("Data corrupted: truncated legacy vault")
+
+        salt_end = self.kdf_params["salt_len"]
+        nonce_end = salt_end + self.GCM_NONCE_LENGTH
+        salt = encrypted_data[:salt_end]
+        nonce = encrypted_data[salt_end:nonce_end]
+        ciphertext = encrypted_data[nonce_end:]
+
+        key = self._derive_key(password, salt)
+        plaintext = AESGCM(key).decrypt(nonce, ciphertext, None)
+        return json.loads(plaintext.decode("utf-8"))

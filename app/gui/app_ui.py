@@ -660,41 +660,80 @@ class SecureVaultApp(ctk.CTk):
             self.edit_status_label.configure(text="Website and Password are required!", text_color="red")
             return
 
-        # 1. Update data at specified index in memory
-        self.vault_data[index] = {
+        # ==============================================================
+        # PRIORITY-1 CHANGE 6A: Copy-on-write edit transaction.
+        #
+        # Do not mutate self.vault_data before durable storage succeeds.
+        # If encryption or disk I/O fails, both the UI and the on-disk vault
+        # continue to represent the last successfully saved state.
+        # ==============================================================
+        updated_entry = {
             "site": site,
             "username": username,
             "email": email,
             "password": password
         }
+        updated_data = list(self.vault_data)
+        updated_data[index] = updated_entry
 
         try:
-            # 2. Call BLL manager to re-encrypt entire list with master password and write to disk
-            self.vault_service.save_vault(self.vault_filepath, self.master_password, self.vault_data)
-
-            # 3. After successful save, automatically jump back to password list interface
+            self.vault_service.save_vault(
+                self.vault_filepath,
+                self.master_password,
+                updated_data,
+            )
+            # Commit the in-memory state only after the atomic file save.
+            self.vault_data = updated_data
             self.show_password_list()
-
-            # 4. Display green success message at top of list page
-            self.list_status_label.configure(text=f"'{site}' updated successfully!", text_color="green")
-            self.after(3000, lambda: self.list_status_label.configure(text=""))
+            self.list_status_label.configure(
+                text=f"'{site}' updated successfully!",
+                text_color="green",
+            )
+            self.after(
+                3000,
+                lambda: self.list_status_label.configure(text=""),
+            )
         except Exception as e:
-            self.edit_status_label.configure(text=f"Update failed: {e}", text_color="red")
+            self.edit_status_label.configure(
+                text=f"Update failed: {e}",
+                text_color="red",
+            )
 
 
     def delete_password(self, index):
         """Delete specified password and re-encrypt and save"""
-        deleted_item = self.vault_data.pop(index)  # Remove from memory
+        # ==============================================================
+        # PRIORITY-1 CHANGE 6B: Copy-on-write delete transaction.
+        #
+        # The previous pop() removed the item before save_vault completed.
+        # Here the original list remains untouched until storage succeeds.
+        # ==============================================================
+        deleted_item = self.vault_data[index]
+        updated_data = (
+            self.vault_data[:index] + self.vault_data[index + 1:]
+        )
 
         try:
-            # Call BLL: overwrite old file on disk with remaining data
-            self.vault_service.save_vault(self.vault_filepath, self.master_password, self.vault_data)
-            # Refresh list interface
+            self.vault_service.save_vault(
+                self.vault_filepath,
+                self.master_password,
+                updated_data,
+            )
+            self.vault_data = updated_data
             self.show_password_list()
-            self.list_status_label.configure(text=f"'{deleted_item.get('site')}' deleted!", text_color="red")
-            self.after(3000, lambda: self.list_status_label.configure(text=""))
+            self.list_status_label.configure(
+                text=f"'{deleted_item.get('site')}' deleted!",
+                text_color="red",
+            )
+            self.after(
+                3000,
+                lambda: self.list_status_label.configure(text=""),
+            )
         except Exception as e:
-            self.list_status_label.configure(text=f"Delete failed: {e}", text_color="red")
+            self.list_status_label.configure(
+                text=f"Delete failed: {e}",
+                text_color="red",
+            )
 
 
     def copy_to_clipboard(self, password, site_name):
@@ -860,13 +899,25 @@ class SecureVaultApp(ctk.CTk):
             "password": password
         }
 
-        # 2. Append to data list in memory
-        self.vault_data.append(new_entry)
+        # ==============================================================
+        # PRIORITY-1 CHANGE 6C: Copy-on-write add transaction.
+        #
+        # Build the candidate list separately. The visible in-memory vault is
+        # updated only after the new encrypted generation is durable.
+        # ==============================================================
+        updated_data = [*self.vault_data, new_entry]
 
         try:
-            # 3. Call BLL manager to re-encrypt with master_password and write to disk
-            self.vault_service.save_vault(self.vault_filepath, self.master_password, self.vault_data)
-            self.add_status_label.configure(text=f"'{site}' saved successfully!", text_color="green")
+            self.vault_service.save_vault(
+                self.vault_filepath,
+                self.master_password,
+                updated_data,
+            )
+            self.vault_data = updated_data
+            self.add_status_label.configure(
+                text=f"'{site}' saved successfully!",
+                text_color="green",
+            )
 
             # Clear form for next entry
             self.entry_site.delete(0, 'end')

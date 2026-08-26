@@ -1,0 +1,10 @@
+# ======================================================================
+# PRIORITY-1 CHANGE 8: Development and build dependencies.
+#
+# Install this file only when running tests or building a distributable.
+# Runtime users install requirements.txt and avoid unnecessary tooling.
+# ======================================================================
+-r requirements.txt
+
+pytest==9.0.2
+pyinstaller==6.19.0
