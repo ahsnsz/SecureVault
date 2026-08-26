@@ -6,7 +6,12 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    # PRIORITY-2 CHANGE 7G: These imports are lazy at runtime so non-macOS
+    # systems remain portable; PyInstaller must still bundle them on macOS.
+    hiddenimports=[
+        'LocalAuthentication',
+        'keyring.backends.macOS',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -1,10 +1,18 @@
 import hmac
 import os
+import queue
+import threading
 import json
 from tkinter import filedialog
 import csv
 import customtkinter as ctk
 import tkinter.messagebox as messagebox
+
+from app.dal.mac_biometrics import (
+    MacAuthManager,
+    TouchIDCredentialNotFoundError,
+    TouchIDError,
+)
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -78,6 +86,12 @@ class SecureVaultApp(ctk.CTk):
     def __init__(self, vault_service):
         super().__init__()
         self.vault_service = vault_service
+        self.mac_auth_manager = MacAuthManager()
+        self.touch_id_enabled_for_session = False
+        self.touch_id_worker = None
+        self.touch_id_poll_timer = None
+        self.touch_id_request_id = 0
+        self.touch_id_result_queue = queue.Queue()
 
         # Fix: read-only error after packaging: Set a safe absolute path
         # Get the current computer user's "Documents" directory
@@ -165,6 +179,7 @@ class SecureVaultApp(ctk.CTk):
         # value. This also avoids claiming memory is "completely" overwritten.
         # =================================================================
         self.clear_sensitive_clipboard(silent=True)
+        self._invalidate_touch_id_request()
 
         if (
             not hasattr(self, "sidebar_frame")
@@ -270,21 +285,89 @@ class SecureVaultApp(ctk.CTk):
         self.status_label = ctk.CTkLabel(self.login_frame, text="", text_color="red")
         self.status_label.pack(pady=(0, 10))
 
-        self.unlock_btn = ctk.CTkButton(self.login_frame, text="Unlock / Create Vault", width=250, height=40,
-                                        command=self.handle_unlock)
+        self.unlock_btn = ctk.CTkButton(
+            self.login_frame,
+            text="Unlock / Create Vault",
+            width=250,
+            height=40,
+            command=self.handle_unlock,
+        )
         self.unlock_btn.pack(pady=(0, 10))
 
-        db_btn_frame = ctk.CTkFrame(self.login_frame, fg_color="transparent")
-        db_btn_frame.pack(pady=(15, 0))
+        # PRIORITY-2 CHANGE 7D: Touch ID is opt-in and tied to this vault.
+        # Manual unlock always remains available. Selecting the checkbox saves
+        # the credential only after the entered password successfully decrypts
+        # (or creates) the selected vault.
+        self.touch_id_opt_in_var = ctk.BooleanVar(value=False)
+        self.touch_id_unlock_btn = ctk.CTkButton(
+            self.login_frame,
+            text="Unlock with Touch ID",
+            width=250,
+            height=35,
+            fg_color="#5c6bc0",
+            hover_color="#3f51b5",
+            command=self.handle_touch_id_unlock,
+        )
+        self.touch_id_opt_in_checkbox = ctk.CTkCheckBox(
+            self.login_frame,
+            text="Enable Touch ID after successful password unlock",
+            variable=self.touch_id_opt_in_var,
+            font=ctk.CTkFont(size=11),
+        )
 
-        self.open_db_btn = ctk.CTkButton(db_btn_frame, text="📂 Open Vault", width=120, height=35,
-                                         fg_color="transparent", border_width=1, text_color=("gray10", "gray90"),
-                                         command=self.handle_open_file)
+        self.db_btn_frame = ctk.CTkFrame(
+            self.login_frame,
+            fg_color="transparent",
+        )
+        self.db_btn_frame.pack(pady=(15, 0))
+
+        self.open_db_btn = ctk.CTkButton(
+            self.db_btn_frame,
+            text="📂 Open Vault",
+            width=120,
+            height=35,
+            fg_color="transparent",
+            border_width=1,
+            text_color=("gray10", "gray90"),
+            command=self.handle_open_file,
+        )
         self.open_db_btn.pack(side="left", padx=(0, 5))
 
-        self.new_db_btn = ctk.CTkButton(db_btn_frame, text="➕ New Vault", width=120, height=35, fg_color="transparent",
-                                        border_width=1, text_color=("gray10", "gray90"), command=self.handle_new_file)
+        self.new_db_btn = ctk.CTkButton(
+            self.db_btn_frame,
+            text="➕ New Vault",
+            width=120,
+            height=35,
+            fg_color="transparent",
+            border_width=1,
+            text_color=("gray10", "gray90"),
+            command=self.handle_new_file,
+        )
         self.new_db_btn.pack(side="left", padx=(5, 0))
+        self._update_touch_id_controls(
+            os.path.exists(self.vault_filepath)
+        )
+
+
+    def _update_touch_id_controls(self, vault_exists):
+        """Show only Touch ID controls that are valid for the current path."""
+        self.touch_id_unlock_btn.pack_forget()
+        self.touch_id_opt_in_checkbox.pack_forget()
+        self.touch_id_opt_in_var.set(False)
+
+        if not self.mac_auth_manager.is_available():
+            return
+
+        if vault_exists:
+            self.touch_id_unlock_btn.pack(
+                pady=(0, 8),
+                before=self.db_btn_frame,
+            )
+
+        self.touch_id_opt_in_checkbox.pack(
+            pady=(0, 8),
+            before=self.db_btn_frame,
+        )
 
 
     def handle_open_file(self):
@@ -310,6 +393,7 @@ class SecureVaultApp(ctk.CTk):
 
     def _update_filepath_ui(self, filepath):
         """Update login controls after selecting a different vault path."""
+        self._invalidate_touch_id_request()
         self.vault_filepath = filepath
         vault_exists = os.path.exists(self.vault_filepath)
 
@@ -333,6 +417,7 @@ class SecureVaultApp(ctk.CTk):
                 before=self.status_label,
             )
 
+        self._update_touch_id_controls(vault_exists)
         self.password_entry.delete(0, "end")
         self.confirm_password_entry.delete(0, "end")
         self.status_label.configure(text="")
@@ -398,13 +483,28 @@ class SecureVaultApp(ctk.CTk):
 
             prepared_data = self.vault_service.ensure_entry_ids(loaded_data)
 
+            touch_id_message = ""
+            touch_id_status_color = "green"
+            self.touch_id_enabled_for_session = False
+            if self.touch_id_opt_in_var.get():
+                try:
+                    self.mac_auth_manager.save_password_to_keychain(
+                        self.vault_filepath,
+                        password,
+                    )
+                    self.touch_id_enabled_for_session = True
+                    touch_id_message = " Touch ID enabled."
+                except TouchIDError as error:
+                    touch_id_message = f" Touch ID was not enabled: {error}"
+                    touch_id_status_color = "#f0ad4e"
+
             # The password and plaintext entries become session state only
             # after every create/decrypt/validation step has succeeded.
             self.master_password = password
             self.vault_data = prepared_data
             self.status_label.configure(
-                text=success_message,
-                text_color="green",
+                text=f"{success_message}{touch_id_message}",
+                text_color=touch_id_status_color,
             )
             self.add_recent_vault(self.vault_filepath)
             self.after(500, self.show_main_vault_screen)
@@ -424,12 +524,190 @@ class SecureVaultApp(ctk.CTk):
             )
 
 
+    # =====================================================================
+    # PRIORITY-2 CHANGE 7E: Non-blocking Touch ID login.
+    #
+    # LocalAuthentication waits in a daemon worker while Tk continues to draw
+    # and respond. The worker communicates through a queue; it never touches
+    # Tk widgets from outside the main thread. Request IDs prevent a result
+    # from unlocking a different vault after the user switches paths/logs out.
+    # =====================================================================
+    def _invalidate_touch_id_request(self):
+        self.touch_id_request_id += 1
+        self.touch_id_enabled_for_session = False
+        if self.touch_id_poll_timer is not None:
+            try:
+                self.after_cancel(self.touch_id_poll_timer)
+            except Exception:
+                pass
+            self.touch_id_poll_timer = None
+
+    def handle_touch_id_unlock(self):
+        """Start biometric authentication for the selected existing vault."""
+        if not os.path.exists(self.vault_filepath):
+            self.status_label.configure(
+                text="Create the vault with a master password first.",
+                text_color="red",
+            )
+            return
+
+        if self.touch_id_worker and self.touch_id_worker.is_alive():
+            self.status_label.configure(
+                text="A Touch ID request is already in progress.",
+                text_color="#f0ad4e",
+            )
+            return
+
+        while True:
+            try:
+                self.touch_id_result_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        self.touch_id_request_id += 1
+        request_id = self.touch_id_request_id
+        vault_path = self.vault_filepath
+        self.touch_id_unlock_btn.configure(state="disabled")
+        self.status_label.configure(
+            text="Waiting for Touch ID...",
+            text_color="#3a7ebf",
+        )
+
+        self.touch_id_worker = threading.Thread(
+            target=self._touch_id_unlock_worker,
+            args=(vault_path, request_id),
+            name="SecureVaultTouchID",
+            daemon=True,
+        )
+        self.touch_id_worker.start()
+        self.touch_id_poll_timer = self.after(
+            100,
+            lambda: self._poll_touch_id_result(request_id),
+        )
+
+    def _touch_id_unlock_worker(self, vault_path, request_id):
+        password = None
+        error_message = None
+        try:
+            self.mac_auth_manager.authenticate(
+                reason=f"Unlock {os.path.basename(vault_path)}",
+            )
+            if request_id != self.touch_id_request_id:
+                return
+
+            password = self.mac_auth_manager.get_password_from_keychain(
+                vault_path
+            )
+            if password is None:
+                raise TouchIDCredentialNotFoundError(
+                    "No Touch ID credential is saved for this vault."
+                )
+        except TouchIDError as error:
+            error_message = str(error)
+        except Exception:
+            error_message = "Touch ID failed unexpectedly."
+
+        if request_id == self.touch_id_request_id:
+            self.touch_id_result_queue.put(
+                (request_id, vault_path, password, error_message)
+            )
+
+    def _poll_touch_id_result(self, request_id):
+        if request_id != self.touch_id_request_id:
+            return
+
+        try:
+            result = self.touch_id_result_queue.get_nowait()
+        except queue.Empty:
+            self.touch_id_poll_timer = self.after(
+                100,
+                lambda: self._poll_touch_id_result(request_id),
+            )
+            return
+
+        self.touch_id_poll_timer = None
+        self._finish_touch_id_unlock(*result)
+
+    def _finish_touch_id_unlock(
+        self,
+        request_id,
+        vault_path,
+        password,
+        error_message,
+    ):
+        self.touch_id_worker = None
+        if (
+            hasattr(self, "touch_id_unlock_btn")
+            and self.touch_id_unlock_btn.winfo_exists()
+        ):
+            self.touch_id_unlock_btn.configure(state="normal")
+
+        if (
+            request_id != self.touch_id_request_id
+            or vault_path != self.vault_filepath
+        ):
+            return
+
+        if error_message:
+            self.status_label.configure(
+                text=error_message,
+                text_color="red",
+            )
+            return
+
+        try:
+            loaded_data = self.vault_service.load_vault(
+                vault_path,
+                password,
+            )
+            prepared_data = self.vault_service.ensure_entry_ids(
+                loaded_data
+            )
+            self.master_password = password
+            self.vault_data = prepared_data
+            self.touch_id_enabled_for_session = True
+            self.status_label.configure(
+                text="Unlocked with Touch ID!",
+                text_color="green",
+            )
+            self.add_recent_vault(vault_path)
+            self.after(500, self.show_main_vault_screen)
+        except ValueError:
+            # The master password may have changed outside this session. Remove
+            # the stale credential instead of retrying it indefinitely.
+            try:
+                self.mac_auth_manager.delete_password_from_keychain(
+                    vault_path
+                )
+            except TouchIDError:
+                pass
+            self.master_password = ""
+            self.vault_data = []
+            self.touch_id_enabled_for_session = False
+            self.status_label.configure(
+                text=(
+                    "Saved Touch ID credential is outdated. Unlock once with "
+                    "the current master password and enable Touch ID again."
+                ),
+                text_color="red",
+            )
+        except Exception:
+            self.master_password = ""
+            self.vault_data = []
+            self.touch_id_enabled_for_session = False
+            self.status_label.configure(
+                text="The selected vault could not be opened.",
+                text_color="red",
+            )
+
+
     def handle_logout(self):
         """Actively lock the vault and return to the login/switch screen."""
         if hasattr(self, "sidebar_frame") and self.sidebar_frame.winfo_exists():
             # PRIORITY-2 CHANGE 5B: Remove sensitive references and any
             # password this application still owns on the clipboard.
             self.clear_sensitive_clipboard(silent=True)
+            self._invalidate_touch_id_request()
             self.vault_data = []
             self.master_password = ""
 
@@ -906,6 +1184,7 @@ class SecureVaultApp(ctk.CTk):
     def handle_app_close(self):
         """Best-effort sensitive-state cleanup before closing the window."""
         self.clear_sensitive_clipboard(silent=True)
+        self._invalidate_touch_id_request()
         self.vault_data = []
         self.master_password = ""
         self.destroy()
@@ -1142,10 +1421,31 @@ class SecureVaultApp(ctk.CTk):
                 new_pwd,
                 self.vault_data,
             )
+
+            touch_id_update_message = ""
+            touch_id_update_color = "green"
+            if self.touch_id_enabled_for_session:
+                try:
+                    self.mac_auth_manager.save_password_to_keychain(
+                        self.vault_filepath,
+                        new_pwd,
+                    )
+                    touch_id_update_message = " Touch ID updated."
+                except TouchIDError:
+                    self.touch_id_enabled_for_session = False
+                    touch_id_update_message = (
+                        " Touch ID could not be updated; enable it again "
+                        "at the next password unlock."
+                    )
+                    touch_id_update_color = "#f0ad4e"
+
             self.master_password = new_pwd
             self.change_pwd_status.configure(
-                text="Master password updated successfully!",
-                text_color="green",
+                text=(
+                    "Master password updated successfully!"
+                    f"{touch_id_update_message}"
+                ),
+                text_color=touch_id_update_color,
             )
             self.entry_old_master.delete(0, "end")
             self.entry_new_master.delete(0, "end")
@@ -1269,6 +1569,36 @@ class SecureVaultApp(ctk.CTk):
         btn_update = ctk.CTkButton(scroll_frame, text="Update Password", command=self.handle_change_master_password)
         btn_update.pack(anchor="w", pady=(10, 0))
 
+        # PRIORITY-2 CHANGE 7F: Give users an explicit way to forget the
+        # selected vault's saved Keychain credential.
+        if self.mac_auth_manager.is_available():
+            ctk.CTkFrame(
+                scroll_frame,
+                height=2,
+                fg_color=("gray80", "gray20"),
+            ).pack(fill="x", pady=(20, 10))
+            ctk.CTkLabel(
+                scroll_frame,
+                text="Touch ID",
+                font=ctk.CTkFont(size=18, weight="bold"),
+            ).pack(anchor="w", pady=(10, 5))
+            ctk.CTkLabel(
+                scroll_frame,
+                text=(
+                    "The saved credential is scoped to this vault and stored "
+                    "in macOS Keychain."
+                ),
+                text_color="gray",
+            ).pack(anchor="w", pady=(0, 10))
+            ctk.CTkButton(
+                scroll_frame,
+                text="Forget Touch ID Credential",
+                fg_color="#f0ad4e",
+                hover_color="#ec971f",
+                text_color="black",
+                command=self.handle_forget_touch_id,
+            ).pack(anchor="w", pady=(0, 10))
+
         # ====== Danger Zone ======
         ctk.CTkLabel(
             scroll_frame,
@@ -1306,6 +1636,25 @@ class SecureVaultApp(ctk.CTk):
             command=self.handle_export_csv  # Bind to export method
         )
         btn_export.pack(anchor="w", pady=(0, 20))
+
+
+    def handle_forget_touch_id(self):
+        """Remove this vault's saved Keychain credential."""
+        try:
+            removed = (
+                self.mac_auth_manager.delete_password_from_keychain(
+                    self.vault_filepath
+                )
+            )
+            self.touch_id_enabled_for_session = False
+            message = (
+                "Touch ID credential removed."
+                if removed
+                else "No Touch ID credential was saved for this vault."
+            )
+            self.show_toast(message, text_color="#f0ad4e")
+        except TouchIDError as error:
+            self.show_toast(str(error), text_color="#d9534f")
 
 
     def handle_export_csv(self):
@@ -1363,6 +1712,14 @@ class SecureVaultApp(ctk.CTk):
             return  # User clicked No, cancel operation
 
         try:
+            # Remove the matching Keychain credential as part of deletion.
+            try:
+                self.mac_auth_manager.delete_password_from_keychain(
+                    self.vault_filepath
+                )
+            except TouchIDError:
+                pass
+
             # 2. Physically delete .svdb encrypted file from computer hard disk
             if os.path.exists(self.vault_filepath):
                 os.remove(self.vault_filepath)
