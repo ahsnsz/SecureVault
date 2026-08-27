@@ -40,9 +40,12 @@ SecureVault 是一款使用 Python 和 CustomTkinter 开发的本地桌面密码
 
 ### 系统要求
 
-- Python 3.10 或更高版本。
+- Anaconda 或 Miniconda，用于创建统一的 Conda 环境。
+- 名为 `securevault` 的 Conda 环境，使用 Python 3.10。
 - macOS Terminal：系统自带，用于生成 `SecureVault.app` 并测试 Touch ID。
 - Windows PowerShell 或 Command Prompt：系统自带，用于生成 Windows `.exe`。
+
+打包后的 `SecureVault.app` 或 Windows 应用已经包含 Python 运行环境，最终用户不需要另外安装 Anaconda 或 Python。Anaconda 只用于从源代码运行、测试和打包。
 
 > PyInstaller 不是跨平台编译器。在 macOS 上打包 macOS 应用，在 Windows 上打包 Windows 应用。不能直接在 Mac 上生成可正式使用的 Windows `.exe`。
 
@@ -98,7 +101,9 @@ SecureVault/
 
 ## 在终端中配置 Python 环境
 
-为避免系统 Python 和其他项目的依赖互相影响，建议在项目中创建 `.venv` 虚拟环境。创建操作只需要执行一次；以后每次重新打开终端时，再激活它即可。
+本项目统一使用名为 `securevault` 的 Conda 环境和 Python 3.10。不要在同一次构建中混用 Conda `base`、系统 `python3` 或其他虚拟环境。
+
+环境只需要创建一次；以后每次重新打开终端时，执行 `conda activate securevault` 即可。
 
 ### macOS Terminal
 
@@ -109,25 +114,48 @@ SecureVault/
    cd /Users/zhouyangshen/Desktop/SecureVault
    ```
 
-3. 确认 Python 版本：
+3. 检查 `securevault` 环境是否存在：
 
    ```bash
-   python3 --version
+   conda env list
    ```
 
-4. 首次使用时创建虚拟环境：
+4. 如果列表中没有 `securevault`，创建 Python 3.10 环境：
 
    ```bash
-   python3 -m venv .venv
+   conda create --name securevault python=3.10 -y
    ```
 
-5. 激活虚拟环境：
+5. 激活统一环境：
 
    ```bash
-   source .venv/bin/activate
+   conda activate securevault
    ```
 
-激活成功后，终端提示符前通常会出现 `(.venv)`。
+激活成功后，终端提示符前通常会出现 `(securevault)`。
+
+这台开发 Mac 上已经存在该环境，解释器应该是：
+
+```text
+/opt/anaconda3/envs/securevault/bin/python
+```
+
+验证时运行：
+
+```bash
+which python
+python --version
+python -c "import sys; print(sys.executable)"
+```
+
+预期看到 `/opt/anaconda3/envs/securevault/bin/python` 和 Python 3.10。其他 Mac 的 Anaconda 安装位置可能不同，因此日常操作应该使用 `conda activate securevault`，不要在命令中硬编码绝对路径。
+
+如果 Terminal 提示 `conda: command not found`，这台 Mac 的 Anaconda 可以先这样启用：
+
+```bash
+source /opt/anaconda3/bin/activate
+conda activate securevault
+```
 
 ### Windows PowerShell
 
@@ -138,31 +166,36 @@ SecureVault/
    cd C:\path\to\SecureVault
    ```
 
-3. 确认 Python 版本并创建虚拟环境：
+3. 检查环境；如果不存在，就创建 Python 3.10 环境：
 
    ```powershell
+   conda env list
+   conda create --name securevault python=3.10 -y
+   ```
+
+   已经存在 `securevault` 时，不要重复创建。
+
+4. 激活并验证环境：
+
+   ```powershell
+   conda activate securevault
    python --version
-   python -m venv .venv
+   python -c "import sys; print(sys.executable)"
    ```
 
-   如果系统找不到 `python`，可以把 Windows 命令中的 `python` 换成 `py`。
+Windows 上的绝对路径取决于 Anaconda 或 Miniconda 的安装位置，不会是 macOS 的 `/opt/anaconda3/...`。只要环境名称是 `securevault`、Python 是 3.10 即可。
 
-4. 激活虚拟环境：
-
-   ```powershell
-   .\.venv\Scripts\Activate.ps1
-   ```
-
-如果 PowerShell 的执行策略阻止激活脚本，可以改用 Command Prompt，或者在后续命令中直接使用 `.venv\Scripts\python.exe`。
+如果 PowerShell 找不到 `conda`，可以打开 **Anaconda Prompt** 执行相同命令，或者先运行 `conda init powershell`，关闭并重新打开 PowerShell。
 
 ### Windows Command Prompt
 
-在命令提示符中进入项目并激活环境：
+安装 Anaconda 或 Miniconda 后，也可以在命令提示符中使用相同环境：
 
 ```bat
 cd /d C:\path\to\SecureVault
-python -m venv .venv
-.venv\Scripts\activate.bat
+conda activate securevault
+python --version
+python -c "import sys; print(sys.executable)"
 ```
 
 ### 确认解释器和工作目录
@@ -183,7 +216,7 @@ python -c "import sys; print(sys.executable)"
 Get-Location
 ```
 
-解释器路径应该位于项目的 `.venv` 中，工作目录应该是包含 `main.py`、`requirements-dev.txt` 和 `SecureVault.spec` 的 SecureVault 项目根目录。不要在一个 Python 环境中安装依赖，再用另一个环境打包。
+解释器路径应该位于名为 `securevault` 的 Conda 环境中，Python 版本应该是 3.10；工作目录应该是包含 `main.py`、`requirements-dev.txt` 和 `SecureVault.spec` 的 SecureVault 项目根目录。不要在一个 Python 环境中安装依赖，再用另一个环境打包。
 
 ## 安装依赖
 
@@ -442,11 +475,12 @@ PyInstaller 不能在 macOS 上直接生成 Windows `.exe`。Windows 版本必�
 cd C:\path\to\SecureVault
 ```
 
-首次打包时创建并激活虚拟环境：
+激活统一的 Conda 环境：
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+conda activate securevault
+python --version
+python -c "import sys; print(sys.executable)"
 ```
 
 安装依赖并运行测试：
@@ -508,8 +542,7 @@ SecureVault-Windows.zip
 
 ```bat
 cd /d C:\path\to\SecureVault
-python -m venv .venv
-.venv\Scripts\activate.bat
+conda activate securevault
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
 python -m pytest tests -v
@@ -528,13 +561,14 @@ Windows 不提供 macOS Touch ID 功能。`requirements.txt` 中带 macOS 平台
 
 ### `No module named PyInstaller`
 
-说明当前解释器没有安装开发依赖：
+先确认已经激活标准环境，再安装开发依赖：
 
 ```bash
+conda activate securevault
 python -m pip install -r requirements-dev.txt
 ```
 
-然后确认 `python -m pip` 和 `python -m PyInstaller` 使用的是同一个 Python。
+然后用 `python -c "import sys; print(sys.executable)"` 确认解释器属于 `securevault` 环境。`python -m pip` 和 `python -m PyInstaller` 必须使用同一个 Python。
 
 ### 找不到 `SecureVault.spec`
 
@@ -589,8 +623,8 @@ python -m PyInstaller --clean --noconfirm SecureVault.spec
 
 ```bash
 cd /Users/zhouyangshen/Desktop/SecureVault
-python3 -m venv .venv
-source .venv/bin/activate
+conda activate securevault
+python -c "import sys; print(sys.executable)"
 python -m pip install -r requirements-dev.txt
 python -m pytest tests -v
 python -m PyInstaller --clean --noconfirm SecureVault.spec
@@ -605,7 +639,7 @@ ditto -c -k --sequesterRsrc --keepParent \
   SecureVault-macOS.zip
 ```
 
-以后重新打包时，只需要重新进入项目、激活 `.venv`，然后从测试命令开始执行。
+以后重新打包时，只需要重新进入项目、执行 `conda activate securevault`，然后从测试命令开始执行。
 
 ### Windows PowerShell
 
@@ -613,8 +647,8 @@ ditto -c -k --sequesterRsrc --keepParent \
 
 ```powershell
 cd C:\path\to\SecureVault
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+conda activate securevault
+python -c "import sys; print(sys.executable)"
 python -m pip install -r requirements-dev.txt
 python -m pytest tests -v
 New-Item -ItemType Directory -Force windows-build | Out-Null

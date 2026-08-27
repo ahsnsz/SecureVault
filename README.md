@@ -32,12 +32,14 @@ dependency split, test suite, and PyInstaller specification.
 
 ## Requirements
 
-- Python 3.10 or newer
+- Anaconda or Miniconda for source development and packaging
+- Python 3.10 in the Conda environment named `securevault`
 - Windows or macOS for the desktop interface
 - macOS with Touch ID enrolled to use biometric unlock
 
 Runtime dependencies are pinned in `requirements.txt`. Test and packaging
-tools are kept separately in `requirements-dev.txt`.
+tools are kept separately in `requirements-dev.txt`. The packaged application
+contains its Python runtime, so end users do not need Anaconda or Python.
 
 ## Installation
 
@@ -49,17 +51,26 @@ tools are kept separately in `requirements-dev.txt`.
    cd path/to/SecureVault
    ```
 
-2. Create and activate a virtual environment (recommended):
+2. Create the standard Conda environment if it does not already exist, then
+   activate it:
 
    ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
+   conda create --name securevault python=3.10 -y
+   conda activate securevault
    ```
 
-   On Windows PowerShell, activate it with:
+   On this development Mac, the existing environment's interpreter is:
 
-   ```powershell
-   .venv\Scripts\Activate.ps1
+   ```text
+   /opt/anaconda3/envs/securevault/bin/python
+   ```
+
+   The absolute path is machine-specific. On every platform, activate by the
+   environment name and verify the interpreter instead of hard-coding a path:
+
+   ```bash
+   python -c "import sys; print(sys.executable)"
+   python --version
    ```
 
 3. Install the runtime dependencies:
@@ -82,9 +93,10 @@ brew install --cask securevault
 
 ## Run the application
 
-From the project root:
+Activate the standard environment and run from the project root:
 
 ```bash
+conda activate securevault
 python main.py
 ```
 
@@ -162,6 +174,7 @@ has been replaced successfully.
 Install the runtime, test, and packaging dependencies together:
 
 ```bash
+conda activate securevault
 python -m pip install -r requirements-dev.txt
 ```
 
@@ -182,8 +195,9 @@ Install the development dependencies, then build with the checked-in
 PyInstaller specification:
 
 ```bash
+conda activate securevault
 python -m pip install -r requirements-dev.txt
-pyinstaller --clean SecureVault.spec
+python -m PyInstaller --clean --noconfirm SecureVault.spec
 ```
 
 Build output is written to `dist/`. The specification declares the lazy
