@@ -7,13 +7,13 @@
 
 SecureVault 是一款使用 Python 和 CustomTkinter 开发的本地桌面密码管理器。保险库文件使用 AES-256-GCM 加密，密钥通过 Argon2id 从主密码派生。macOS 用户还可以为每个保险库单独启用 Touch ID 解锁。
 
-本文档重点说明如何在 PyCharm 中完成环境配置、测试、macOS 应用打包、验收和分发。
+本文档使用系统自带的命令行工具完成环境配置、测试、打包、验收和分发。macOS 使用 **Terminal（终端）**，Windows 使用 **PowerShell** 或 **Command Prompt（命令提示符）**，不要求安装 PyCharm 或其他 IDE。
 
 ## 目录
 
 - [项目功能](#项目功能)
 - [打包前准备](#打包前准备)
-- [在 PyCharm 中配置环境](#在-pycharm-中配置环境)
+- [在终端中配置 Python 环境](#在终端中配置-python-环境)
 - [安装依赖](#安装依赖)
 - [打包前测试](#打包前测试)
 - [打包 macOS 应用](#打包-macos-应用)
@@ -41,18 +41,25 @@ SecureVault 是一款使用 Python 和 CustomTkinter 开发的本地桌面密码
 ### 系统要求
 
 - Python 3.10 或更高版本。
-- PyCharm。
-- macOS：用于生成 `SecureVault.app` 并测试 Touch ID。
-- Windows：用于生成 Windows `.exe`。
+- macOS Terminal：系统自带，用于生成 `SecureVault.app` 并测试 Touch ID。
+- Windows PowerShell 或 Command Prompt：系统自带，用于生成 Windows `.exe`。
 
 > PyInstaller 不是跨平台编译器。在 macOS 上打包 macOS 应用，在 Windows 上打包 Windows 应用。不能直接在 Mac 上生成可正式使用的 Windows `.exe`。
 
 ### 确认项目目录
 
-在 PyCharm 中打开整个项目目录：
+打开系统终端，并进入整个 SecureVault 项目目录。
 
-```text
-/Users/zhouyangshen/Desktop/SecureVault
+当前项目在这台 Mac 上可以使用：
+
+```bash
+cd /Users/zhouyangshen/Desktop/SecureVault
+```
+
+其他用户需要把路径替换为自己保存项目的位置，例如：
+
+```bash
+cd /path/to/SecureVault
 ```
 
 项目根目录至少应该包含：
@@ -69,7 +76,7 @@ SecureVault/
 └── README_zh.md
 ```
 
-不要只打开 `main.py`，否则 PyCharm Terminal 的工作目录和模块导入路径可能不正确。
+后续命令都要从这个项目根目录开始执行。不要进入 `app/` 后再打包，否则入口文件、规格文件和模块导入路径可能不正确。
 
 ### 不要打包个人保险库
 
@@ -89,62 +96,94 @@ SecureVault/
 
 当前 `SecureVault.spec` 的 `datas=[]`，不会主动把这些个人文件打包进应用。
 
-## 在 PyCharm 中配置环境
+## 在终端中配置 Python 环境
 
-### 1. 选择 Python 解释器
+为避免系统 Python 和其他项目的依赖互相影响，建议在项目中创建 `.venv` 虚拟环境。创建操作只需要执行一次；以后每次重新打开终端时，再激活它即可。
 
-打开：
+### macOS Terminal
 
-```text
-PyCharm → Settings → Project: SecureVault → Python Interpreter
+1. 按 `Command + Space` 打开 Spotlight，输入 `Terminal` 并打开终端。
+2. 进入项目根目录：
+
+   ```bash
+   cd /Users/zhouyangshen/Desktop/SecureVault
+   ```
+
+3. 确认 Python 版本：
+
+   ```bash
+   python3 --version
+   ```
+
+4. 首次使用时创建虚拟环境：
+
+   ```bash
+   python3 -m venv .venv
+   ```
+
+5. 激活虚拟环境：
+
+   ```bash
+   source .venv/bin/activate
+   ```
+
+激活成功后，终端提示符前通常会出现 `(.venv)`。
+
+### Windows PowerShell
+
+1. 打开开始菜单，搜索并打开 **PowerShell**。
+2. 进入项目根目录，把示例路径换成自己的路径：
+
+   ```powershell
+   cd C:\path\to\SecureVault
+   ```
+
+3. 确认 Python 版本并创建虚拟环境：
+
+   ```powershell
+   python --version
+   python -m venv .venv
+   ```
+
+   如果系统找不到 `python`，可以把 Windows 命令中的 `python` 换成 `py`。
+
+4. 激活虚拟环境：
+
+   ```powershell
+   .\.venv\Scripts\Activate.ps1
+   ```
+
+如果 PowerShell 的执行策略阻止激活脚本，可以改用 Command Prompt，或者在后续命令中直接使用 `.venv\Scripts\python.exe`。
+
+### Windows Command Prompt
+
+在命令提示符中进入项目并激活环境：
+
+```bat
+cd /d C:\path\to\SecureVault
+python -m venv .venv
+.venv\Scripts\activate.bat
 ```
 
-选择项目已经测试通过的解释器，或者创建一个新的虚拟环境。建议把虚拟环境命名为 `.venv`。
+### 确认解释器和工作目录
 
-如果需要手动创建：
-
-```bash
-python3 -m venv .venv
-```
-
-macOS 激活方式：
-
-```bash
-source .venv/bin/activate
-```
-
-Windows PowerShell 激活方式：
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-### 2. 确认 PyCharm Terminal 使用同一个解释器
-
-在 PyCharm 底部打开 **Terminal**，运行：
+macOS Terminal：
 
 ```bash
 python --version
 python -c "import sys; print(sys.executable)"
-```
-
-第二条命令显示的路径应该对应 PyCharm 中选择的解释器。不要在一个 Python 环境中安装依赖，再用另一个环境打包。
-
-### 3. 确认当前工作目录
-
-macOS：
-
-```bash
 pwd
 ```
 
 Windows PowerShell：
 
 ```powershell
+python --version
+python -c "import sys; print(sys.executable)"
 Get-Location
 ```
 
-结果应该是 SecureVault 项目根目录，也就是包含 `main.py` 和 `SecureVault.spec` 的目录。
+解释器路径应该位于项目的 `.venv` 中，工作目录应该是包含 `main.py`、`requirements-dev.txt` 和 `SecureVault.spec` 的 SecureVault 项目根目录。不要在一个 Python 环境中安装依赖，再用另一个环境打包。
 
 ## 安装依赖
 
@@ -393,19 +432,95 @@ icon='assets/SecureVault.icns'
 
 PyInstaller 不能在 macOS 上直接生成 Windows `.exe`。Windows 版本必须在 Windows 系统或 Windows 虚拟机中构建和测试。
 
-当前 `SecureVault.spec` 包含 macOS `.app` Bundle 和 Touch ID 隐藏导入，主要用于 macOS。Windows 发布版应维护独立的 Windows spec 文件，避免覆盖当前文件。
+当前 `SecureVault.spec` 包含 macOS `.app` Bundle 和 Touch ID 隐藏导入，主要用于 macOS。下面的 Windows 流程会在独立的 `windows-build` 目录中生成临时 spec，避免覆盖项目现有的 macOS `SecureVault.spec`。
 
-Windows 上的基本准备流程是：
+### 使用 PowerShell 完整打包
+
+打开 PowerShell，进入项目根目录：
+
+```powershell
+cd C:\path\to\SecureVault
+```
+
+首次打包时创建并激活虚拟环境：
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
+```
+
+安装依赖并运行测试：
+
+```powershell
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
 python -m pytest tests -v
 ```
 
-随后使用单独的 Windows spec 文件打包。Windows 不提供 Touch ID 功能，`requirements.txt` 中带 macOS 条件的依赖会被自动跳过。
+为 Windows 构建创建独立目录：
+
+```powershell
+New-Item -ItemType Directory -Force windows-build | Out-Null
+Set-Location windows-build
+```
+
+然后从控制台生成无黑色命令行窗口的 onedir 应用：
+
+```powershell
+python -m PyInstaller --clean --noconfirm --windowed --onedir `
+  --name SecureVault `
+  --distpath ..\dist `
+  --workpath build `
+  ..\main.py
+```
+
+回到项目根目录并启动打包结果：
+
+```powershell
+Set-Location ..
+.\dist\SecureVault\SecureVault.exe
+```
+
+最终需要分发整个目录：
+
+```text
+dist\SecureVault\
+```
+
+不能只发送 `SecureVault.exe`，因为它还需要同一目录中的依赖文件。
+
+PowerShell 可以把完整目录压缩成分发包并计算校验值：
+
+```powershell
+Compress-Archive -Path .\dist\SecureVault -DestinationPath .\SecureVault-Windows.zip -Force
+Get-FileHash .\SecureVault-Windows.zip -Algorithm SHA256
+```
+
+生成的分发文件是：
+
+```text
+SecureVault-Windows.zip
+```
+
+### 使用 Command Prompt
+
+如果使用 Command Prompt，可以执行：
+
+```bat
+cd /d C:\path\to\SecureVault
+python -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -v
+if not exist windows-build mkdir windows-build
+cd windows-build
+python -m PyInstaller --clean --noconfirm --windowed --onedir --name SecureVault --distpath ..\dist --workpath build ..\main.py
+cd ..
+dist\SecureVault\SecureVault.exe
+```
+
+Windows 不提供 macOS Touch ID 功能。`requirements.txt` 中带 macOS 平台条件的依赖会被自动跳过，不影响密码解锁和其他跨平台功能。
 
 正式交付 Windows 版本前，也需要在 Windows 上完成创建保险库、保存、重新打开、剪贴板和锁定功能验收。
 
@@ -423,7 +538,7 @@ python -m pip install -r requirements-dev.txt
 
 ### 找不到 `SecureVault.spec`
 
-说明 Terminal 不在项目根目录。先进入项目：
+说明终端不在项目根目录。macOS Terminal 可以先进入项目：
 
 ```bash
 cd /Users/zhouyangshen/Desktop/SecureVault
@@ -468,9 +583,14 @@ python -m PyInstaller --clean --noconfirm SecureVault.spec
 
 ## 最短打包命令清单
 
-已经配置好 PyCharm 解释器后，在项目根目录依次运行：
+### macOS Terminal
+
+首次打包时，在 Terminal 中依次运行：
 
 ```bash
+cd /Users/zhouyangshen/Desktop/SecureVault
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements-dev.txt
 python -m pytest tests -v
 python -m PyInstaller --clean --noconfirm SecureVault.spec
@@ -485,4 +605,28 @@ ditto -c -k --sequesterRsrc --keepParent \
   SecureVault-macOS.zip
 ```
 
-最终交付前，请再次解压 ZIP 并完成一次完整功能验收。
+以后重新打包时，只需要重新进入项目、激活 `.venv`，然后从测试命令开始执行。
+
+### Windows PowerShell
+
+首次打包时，在 PowerShell 中依次运行：
+
+```powershell
+cd C:\path\to\SecureVault
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -v
+New-Item -ItemType Directory -Force windows-build | Out-Null
+Set-Location windows-build
+python -m PyInstaller --clean --noconfirm --windowed --onedir `
+  --name SecureVault `
+  --distpath ..\dist `
+  --workpath build `
+  ..\main.py
+Set-Location ..
+.\dist\SecureVault\SecureVault.exe
+Compress-Archive -Path .\dist\SecureVault -DestinationPath .\SecureVault-Windows.zip -Force
+```
+
+最终交付前，请在目标系统上重新解压对应 ZIP，并完成一次完整功能验收。
