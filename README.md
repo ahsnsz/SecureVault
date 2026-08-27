@@ -1,5 +1,7 @@
 # SecureVault - Password Manager
 
+[中文说明与完整打包指南](README_zh.md)
+
 **University of Liverpool | COMP390 FYP 2025/26**
 
 **Author:** Zhouyang Shen (201850515)
