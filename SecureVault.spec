@@ -51,5 +51,9 @@ app = BUNDLE(
     coll,
     name='SecureVault.app',
     icon=None,
-    bundle_identifier=None,
+    # RELEASE 2.0 CHANGE: Keep the version shown by Finder/macOS aligned with
+    # the GitHub v2.0.0 tag, and use a stable reverse-DNS identifier instead
+    # of PyInstaller's generic "SecureVault" fallback.
+    version='2.0.0',
+    bundle_identifier='com.ahsnsz.securevault',
 )
